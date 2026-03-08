@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -8,7 +8,7 @@ import DogAvatar from "@/components/DogAvatar";
 
 type JoinStep = "form" | "joining" | "done" | "error";
 
-export default function JoinPage() {
+function JoinPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
@@ -283,5 +283,19 @@ export default function JoinPage() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function JoinPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-dvh flex items-center justify-center px-4">
+          <p className="text-foreground/50 font-medium">Loading…</p>
+        </main>
+      }
+    >
+      <JoinPageContent />
+    </Suspense>
   );
 }
