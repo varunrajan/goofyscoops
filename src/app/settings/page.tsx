@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus, Trash2, SquarePen, Check, X } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, SquarePen, Check, X, Link as LinkIcon, Copy, CheckCheck } from "lucide-react";
 import { usePetStore } from "@/context/PetStore";
+import { createClient } from "@/lib/supabase/client";
 import type { ScoopSize, SupplementConfig, MedConfig } from "@/types/supabase";
 
 const SCOOP_SIZES: ScoopSize[] = ["0", "1/4", "1/3", "1/2", "2/3", "3/4", "1"];
@@ -30,6 +31,7 @@ function formatCups(cups: number): string {
 export default function SettingsPage() {
   const {
     settings,
+    loading,
     updateSettings,
     addSupplement,
     updateSupplement,
@@ -51,7 +53,33 @@ export default function SettingsPage() {
   const [editMedName, setEditMedName] = useState("");
   const [editMedFreq, setEditMedFreq] = useState(1);
 
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
+
   const totalCups = scoopSizeToNumber(settings.scoop_size) * settings.daily_scoops;
+
+  async function handleGenerateInvite() {
+    setInviteLoading(true);
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("generate_invite_token");
+
+    if (error) {
+      setInviteLoading(false);
+      return;
+    }
+
+    const origin = window.location.origin;
+    setInviteLink(`${origin}/join?token=${data}`);
+    setInviteLoading(false);
+  }
+
+  async function handleCopyInvite() {
+    if (!inviteLink) return;
+    await navigator.clipboard.writeText(inviteLink);
+    setInviteCopied(true);
+    setTimeout(() => setInviteCopied(false), 2000);
+  }
 
   function handleAddSupplement() {
     if (!newSupName.trim()) return;
@@ -99,6 +127,14 @@ export default function SettingsPage() {
     if (!editingMedId || !editMedName.trim()) return;
     updateMed(editingMedId, { name: editMedName.trim(), frequency: editMedFreq });
     setEditingMedId(null);
+  }
+
+  if (loading) {
+    return (
+      <main className="max-w-md mx-auto px-4 py-8 flex items-center justify-center min-h-[60vh]">
+        <p className="text-foreground/50 font-medium">Loading…</p>
+      </main>
+    );
   }
 
   return (
@@ -398,6 +434,49 @@ export default function SettingsPage() {
             <Plus className="w-5 h-5" />
           </button>
         </div>
+      </section>
+
+      {/* Invite Partner */}
+      <section className="bg-white rounded-3xl p-6 shadow-sm">
+        <h2 className="text-lg font-bold mb-2">Invite Partner</h2>
+        <p className="text-sm text-foreground/60 mb-4">
+          Share this link so someone else can help track meals.
+        </p>
+
+        {inviteLink ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 bg-goofy-cream rounded-xl px-3 py-2.5">
+              <LinkIcon className="w-4 h-4 text-goofy-teal shrink-0" />
+              <span className="text-xs font-mono text-foreground/70 truncate flex-1">
+                {inviteLink}
+              </span>
+              <button
+                type="button"
+                onClick={handleCopyInvite}
+                className="text-goofy-teal hover:text-goofy-teal/70 transition-colors cursor-pointer shrink-0"
+                aria-label="Copy invite link"
+              >
+                {inviteCopied ? (
+                  <CheckCheck className="w-4 h-4" />
+                ) : (
+                  <Copy className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+            <p className="text-xs text-foreground/40 text-center">
+              This link expires in 7 days and can only be used once.
+            </p>
+          </div>
+        ) : (
+          <button
+            type="button"
+            disabled={inviteLoading}
+            onClick={handleGenerateInvite}
+            className="w-full bg-goofy-yellow text-foreground font-bold text-base py-3 rounded-full shadow-sm hover:bg-goofy-yellow/80 active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
+          >
+            {inviteLoading ? "Generating…" : "Generate Invite Link"}
+          </button>
+        )}
       </section>
     </main>
   );

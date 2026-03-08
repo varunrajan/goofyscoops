@@ -21,7 +21,7 @@ A mobile-first, goofy-themed tracker for a pet's daily intake.
 ⠀
 # 3\. Core Functional Requirements
 ### A. Authentication
-* **Login Page:** A playful "Who's a good boy?" login screen.
+* **Login Page:** A playful "Goofy Scoops!" login screen.
 * **Access:** Use Supabase Auth (Email/Password).
 * **Middleware:** Protect all routes; redirect unauthenticated users to /login.
 
