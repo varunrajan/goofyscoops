@@ -30,6 +30,7 @@ export default function Dashboard() {
   const {
     settings,
     log,
+    loading,
     toggleKibble,
     toggleSupplement,
     toggleMed,
@@ -38,6 +39,14 @@ export default function Dashboard() {
   const [greeting] = useState(
     () => GREETINGS[Math.floor(Math.random() * GREETINGS.length)]
   );
+
+  if (loading) {
+    return (
+      <main className="max-w-md mx-auto px-4 pt-6 pb-8 flex items-center justify-center min-h-[60vh]">
+        <p className="text-foreground/50 font-medium">Loading…</p>
+      </main>
+    );
+  }
 
   return (
     <main className="max-w-md mx-auto px-4 pt-6 pb-8 flex flex-col gap-5">
