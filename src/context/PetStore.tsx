@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { Pet, PetSettings, DailyLog, SupplementConfig, MedConfig } from "@/types/supabase";
 
 function today(): string {
-  return new Date().toISOString().split("T")[0];
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
 }
 
 const DEFAULT_SETTINGS: PetSettings = {
