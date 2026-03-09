@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Pet, PetSettings, DailyLog, SupplementConfig, MedConfig } from "@/types/supabase";
 
@@ -46,6 +47,7 @@ interface PetStoreContextValue {
 const PetStoreContext = createContext<PetStoreContextValue | null>(null);
 
 export function PetStoreProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [pet, setPet] = useState<Pet | null>(null);
   const [settings, setSettings] = useState<PetSettings>(DEFAULT_SETTINGS);
   const [log, setLog] = useState<DailyLog>(DEFAULT_LOG);
@@ -131,7 +133,7 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [fetchData]);
+  }, [fetchData, pathname]);
 
   // --- Persist helpers (fire-and-forget) ---
 
