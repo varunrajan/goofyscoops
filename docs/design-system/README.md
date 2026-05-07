@@ -92,6 +92,55 @@ Tailwind defaults. Notable specific values:
 
 ---
 
+## Buttons
+
+### Primary CTA
+Full-width tall pill. Used for standalone page-level actions (login, save, settings).
+
+```
+bg-goofy-teal text-white font-bold text-base py-3.5 rounded-full shadow-md hover:bg-[#009183] active:scale-[0.98] transition-all
+```
+
+### Primary CTA — yellow variant
+Same sizing as above. Used for invite actions and selected/active states.
+
+```
+bg-goofy-yellow text-foreground font-bold text-base py-3.5 rounded-full active:scale-[0.98] transition-all
+```
+
+### Small button (inline)
+Compact pill for use inside cards and banners where a full-width CTA would be too heavy. Introduced for the PWA install banner; reuse for any inline confirm action.
+
+```
+bg-goofy-teal text-white text-xs font-bold px-4 py-2 rounded-full active:scale-[0.98] transition-all
+```
+
+Minimum contrast requirement: must always sit on a white (`#fff`) card background. Never place a small teal button on the peach page background (`#F5D6C0`) — the contrast is insufficient.
+
+### Dismiss / secondary action
+Used when a secondary "no thanks" action accompanies a primary action inside a card or banner. Two allowed treatments depending on available space:
+
+**Text link** (when space allows — e.g. alongside a small button):
+```
+text-xs text-foreground/60 hover:text-foreground/80 transition-colors
+```
+
+**Icon dismiss ✕** (when horizontal space is tight):
+```
+text-sm text-foreground/60 hover:text-foreground/80 transition-colors leading-none
+```
+
+Never use opacity below `/60` for dismiss actions — anything lower fails contrast on white card backgrounds.
+
+### Back / icon button
+Circular ghost button. Used for navigation back actions.
+
+```
+w-11 h-11 rounded-full bg-goofy-teal/10 flex items-center justify-center hover:bg-goofy-teal/20 transition-colors
+```
+
+---
+
 ## Animation Approach
 
 All interactive circle elements (KibbleTracker, ItemTracker) use **Framer Motion** spring animations:
