@@ -7,6 +7,7 @@ import { usePetStore } from "@/context/PetStore";
 import KibbleTracker from "@/components/KibbleTracker";
 import ItemTracker from "@/components/ItemTracker";
 import DogAvatar from "@/components/DogAvatar";
+import { InstallPrompt } from "@/components/InstallPrompt";
 
 const GREETINGS = [
   "Woof! Let's eat!",
@@ -62,6 +63,8 @@ export default function Dashboard() {
         <DogAvatar size={52} />
         <p className="text-lg font-bold text-[#3D3D3D]">{greeting}</p>
       </div>
+
+      <InstallPrompt />
 
       {/* Kibble Section */}
       <section className="bg-white rounded-3xl p-5 shadow-sm border border-[#E8DCC8]">
