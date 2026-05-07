@@ -1,0 +1,45 @@
+/**
+ * GoofyScoops Design System — CSS Custom Properties
+ * Source of truth: src/app/globals.css
+ * Framework: Tailwind CSS v4 (@theme inline)
+ *
+ * Tailwind utility class names derived from these tokens:
+ *   --color-background      → bg-background / text-background
+ *   --color-foreground      → bg-foreground / text-foreground
+ *   --color-goofy-yellow    → bg-goofy-yellow / text-goofy-yellow / border-goofy-yellow
+ *   --color-goofy-teal      → bg-goofy-teal  / text-goofy-teal  / border-goofy-teal
+ *   --color-goofy-cream     → bg-goofy-cream / text-goofy-cream
+ *   --font-sans             → font-sans
+ *   --font-mono             → font-mono
+ */
+
+/* ── Primitive values ───────────────────────────────────────────── */
+:root {
+  --background: #F5D6C0;
+  --foreground: #3D3D3D;
+  --yellow: #FFD166;
+  --teal: #00A896;
+  --cream: #FCF6EC;
+}
+
+/* ── Tailwind v4 theme registration ─────────────────────────────── */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-goofy-yellow: var(--yellow);
+  --color-goofy-teal: var(--teal);
+  --color-goofy-cream: var(--cream);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* ── Supplementary hardcoded values (used inline in components) ─── */
+/*
+  #E8DCC8              — card / section border
+  #009183              — teal hover state (darker)
+  #FFD166 / 15%        — empty-state background tint
+  #00A896 / 10%        — teal background fill tint
+  #00A896 / 25%        — inactive circle border
+  #00A896 / 30%        — active circle ring
+  red-50 / red-600     — error state (Tailwind defaults)
+*/
