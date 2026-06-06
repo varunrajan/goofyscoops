@@ -11,7 +11,9 @@ export interface Pet {
   household_id: UUID;
 }
 
-export type ScoopSize = "0" | "1/4" | "1/3" | "1/2" | "2/3" | "3/4" | "1";
+export type ScoopSize =
+  | "0" | "1/4" | "1/3" | "1/2" | "2/3" | "3/4" | "1"
+  | "1 1/2" | "2";
 
 export interface SupplementConfig {
   id: string;

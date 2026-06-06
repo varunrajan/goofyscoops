@@ -7,7 +7,10 @@ import { usePetStore } from "@/context/PetStore";
 import { createClient } from "@/lib/supabase/client";
 import type { ScoopSize, SupplementConfig, MedConfig } from "@/types/supabase";
 
-const SCOOP_SIZES: ScoopSize[] = ["0", "1/4", "1/3", "1/2", "2/3", "3/4", "1"];
+const SCOOP_SIZES: ScoopSize[] = [
+  "0", "1/4", "1/3", "1/2", "2/3", "3/4", "1",
+  "1 1/2", "2",
+];
 
 function scoopSizeToNumber(size: ScoopSize): number {
   const map: Record<ScoopSize, number> = {
@@ -18,6 +21,8 @@ function scoopSizeToNumber(size: ScoopSize): number {
     "2/3": 2 / 3,
     "3/4": 0.75,
     "1": 1,
+    "1 1/2": 1.5,
+    "2": 2,
   };
   return map[size];
 }
