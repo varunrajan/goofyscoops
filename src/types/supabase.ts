@@ -13,7 +13,7 @@ export interface Pet {
 
 export type ScoopSize =
   | "0" | "1/4" | "1/3" | "1/2" | "2/3" | "3/4" | "1"
-  | "1 1/4" | "1 1/3" | "1 1/2" | "1 2/3" | "1 3/4" | "2";
+  | "1 1/2" | "2";
 
 export interface SupplementConfig {
   id: string;

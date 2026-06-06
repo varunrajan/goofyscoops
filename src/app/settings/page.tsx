@@ -9,7 +9,7 @@ import type { ScoopSize, SupplementConfig, MedConfig } from "@/types/supabase";
 
 const SCOOP_SIZES: ScoopSize[] = [
   "0", "1/4", "1/3", "1/2", "2/3", "3/4", "1",
-  "1 1/4", "1 1/3", "1 1/2", "1 2/3", "1 3/4", "2",
+  "1 1/2", "2",
 ];
 
 function scoopSizeToNumber(size: ScoopSize): number {
@@ -21,11 +21,7 @@ function scoopSizeToNumber(size: ScoopSize): number {
     "2/3": 2 / 3,
     "3/4": 0.75,
     "1": 1,
-    "1 1/4": 1.25,
-    "1 1/3": 1 + 1 / 3,
     "1 1/2": 1.5,
-    "1 2/3": 1 + 2 / 3,
-    "1 3/4": 1.75,
     "2": 2,
   };
   return map[size];
