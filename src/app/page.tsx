@@ -8,6 +8,7 @@ import KibbleTracker from "@/components/KibbleTracker";
 import ItemTracker from "@/components/ItemTracker";
 import DogAvatar from "@/components/DogAvatar";
 import { InstallPrompt } from "@/components/InstallPrompt";
+import { formatScoopLabel } from "@/lib/scoop";
 
 const GREETINGS = [
   "Woof! Let's eat!",
@@ -76,7 +77,7 @@ export default function Dashboard() {
           <span className="text-xl font-bold text-[#3D3D3D]/40">/ {settings.daily_scoops}</span>
         </div>
         <p className="text-center text-xs text-[#3D3D3D]/50 mb-4">
-          {settings.scoop_size} cup per scoop
+          {formatScoopLabel(settings.scoop_size)} per scoop
         </p>
         <KibbleTracker
           checked={log.kibble_checked}

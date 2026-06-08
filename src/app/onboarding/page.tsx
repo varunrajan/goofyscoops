@@ -5,22 +5,12 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import DogAvatar from "@/components/DogAvatar";
 import type { ScoopSize } from "@/types/supabase";
-
-const SCOOP_SIZES: ScoopSize[] = ["1/4", "1/3", "1/2", "2/3", "3/4", "1"];
-
-function scoopSizeToNumber(size: ScoopSize): number {
-  const map: Record<ScoopSize, number> = {
-    "0": 0, "1/4": 0.25, "1/3": 1 / 3, "1/2": 0.5,
-    "2/3": 2 / 3, "3/4": 0.75, "1": 1,
-  };
-  return map[size];
-}
-
-function formatCups(cups: number): string {
-  if (cups === 0) return "0 cups";
-  const rounded = Math.round(cups * 100) / 100;
-  return `${rounded} cup${rounded !== 1 ? "s" : ""}`;
-}
+import {
+  SCOOP_SIZES,
+  formatCups,
+  formatScoopLabel,
+  scoopSizeToNumber,
+} from "@/lib/scoop";
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -125,7 +115,7 @@ export default function OnboardingPage() {
               <div>
                 <label className="block text-sm font-medium mb-2">Select a scoop size</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {SCOOP_SIZES.map((size) => (
+                  {SCOOP_SIZES.filter((size) => size !== "0").map((size) => (
                     <button
                       key={size}
                       type="button"
@@ -138,7 +128,7 @@ export default function OnboardingPage() {
                         }
                       `}
                     >
-                      {size} cup
+                      {formatScoopLabel(size)}
                     </button>
                   ))}
                 </div>

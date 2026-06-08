@@ -5,28 +5,13 @@ import Link from "next/link";
 import { ArrowLeft, Plus, Trash2, SquarePen, Check, X, Link as LinkIcon, Copy, CheckCheck } from "lucide-react";
 import { usePetStore } from "@/context/PetStore";
 import { createClient } from "@/lib/supabase/client";
-import type { ScoopSize, SupplementConfig, MedConfig } from "@/types/supabase";
-
-const SCOOP_SIZES: ScoopSize[] = ["0", "1/4", "1/3", "1/2", "2/3", "3/4", "1"];
-
-function scoopSizeToNumber(size: ScoopSize): number {
-  const map: Record<ScoopSize, number> = {
-    "0": 0,
-    "1/4": 0.25,
-    "1/3": 1 / 3,
-    "1/2": 0.5,
-    "2/3": 2 / 3,
-    "3/4": 0.75,
-    "1": 1,
-  };
-  return map[size];
-}
-
-function formatCups(cups: number): string {
-  if (cups === 0) return "0 cups";
-  const rounded = Math.round(cups * 100) / 100;
-  return `${rounded} cup${rounded !== 1 ? "s" : ""}`;
-}
+import type { SupplementConfig, MedConfig } from "@/types/supabase";
+import {
+  SCOOP_SIZES,
+  formatCups,
+  formatScoopLabel,
+  scoopSizeToNumber,
+} from "@/lib/scoop";
 
 export default function SettingsPage() {
   const {
@@ -173,7 +158,7 @@ export default function SettingsPage() {
                     }
                   `}
                 >
-                  {size === "0" ? "None" : `${size} cup`}
+                  {formatScoopLabel(size)}
                 </button>
               ))}
             </div>
@@ -220,7 +205,7 @@ export default function SettingsPage() {
           <div className="bg-goofy-yellow/20 rounded-2xl p-4 text-center">
             <p className="text-sm opacity-60 mb-1">Daily Total</p>
             <p className="text-2xl font-extrabold">
-              {settings.daily_scoops} scoops × {settings.scoop_size} cup = {formatCups(totalCups)}
+              {settings.daily_scoops} scoops × {formatScoopLabel(settings.scoop_size)} = {formatCups(totalCups)}
             </p>
           </div>
         </div>

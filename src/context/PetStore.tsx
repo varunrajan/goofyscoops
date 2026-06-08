@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useCallback, useMemo, useEf
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Pet, PetSettings, DailyLog, SupplementConfig, MedConfig } from "@/types/supabase";
+import { normalizeScoopSize } from "@/lib/scoop";
 
 function today(): string {
   return new Date().toLocaleDateString("en-CA");
@@ -81,14 +82,22 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
       .single();
 
     if (settingsData) {
+      const scoopSize = normalizeScoopSize(settingsData.scoop_size);
       setSettings({
         pet_id: settingsData.pet_id,
         meal_type: settingsData.meal_type,
-        scoop_size: settingsData.scoop_size,
+        scoop_size: scoopSize,
         daily_scoops: settingsData.daily_scoops,
         supplements_config: settingsData.supplements_config as SupplementConfig[],
         meds_config: settingsData.meds_config as MedConfig[],
       });
+
+      if (scoopSize !== settingsData.scoop_size) {
+        await supabase
+          .from("settings")
+          .update({ scoop_size: scoopSize })
+          .eq("pet_id", settingsData.pet_id);
+      }
     }
 
     const todayStr = today();
