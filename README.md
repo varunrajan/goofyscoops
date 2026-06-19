@@ -10,31 +10,30 @@ Built for households with one dog, two dogs, strong opinions about kibble portio
 
 ## Features
 
-- **Daily kibble tracking** — tap to log each scoop, undo if you overcounted
+- **Daily kibble tracking** — tap to log each scoop (size up to 2 cups), undo if you overcounted
 - **Supplements & medications** — track daily items per pet with per-dose logging
 - **Household sync** — invite anyone in your household; everyone sees the same state in real time
 - **Onboarding flow** — set up your pet's name, scoop size, and daily portions in under a minute
+- **PWA support** — install on your home screen, works offline, enables push notifications
 
 ---
 
 ## Roadmap
 
 ### Now
-- PWA support — install on your home screen, works offline, enables push notifications
+- [Multi-pet support](./specs/multi-pet-support.md)
 - Reactivity log with voice capture — log your dog's threshold level and notes mid-walk without fumbling with your phone
-- Medication overdue alerts — interval-based reminders ("it's been 40 days since flea & tick")
 
 ### Next
+- Medication overdue alerts — interval-based reminders ("it's been 40 days since flea & tick")
 - Potty tracking — useful for illness monitoring, puppies, and the occasional hormonal surprise
 - Twice-daily feeding with per-meal tracking
 - Wet food & additive tracking (yes, including pumpkin portion limits)
-- Expanded scoop sizes beyond 1 cup
 
 ### Later
 - Health history & calendar view — know exactly when the last ear infection was before the vet asks
 - Vaccination & shot records with renewal reminders
 - House sitter report — a shareable summary of your dog's full routine
-- Multi-pet support
 
 ---
 
