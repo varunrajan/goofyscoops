@@ -19,19 +19,12 @@ const DEFAULT_SETTINGS: PetSettings = {
   meds_config: [],
 };
 
-const DEFAULT_LOG: DailyLog = {
-  id: "",
-  pet_id: "",
-  date: today(),
-  kibble_checked: 0,
-  supplements_status: {},
-  meds_status: {},
-};
-
 interface PetStoreContextValue {
   pet: Pet | null;
   settings: PetSettings;
-  log: DailyLog;
+  log: DailyLog | null;
+  viewDate: string;
+  setViewDate: React.Dispatch<React.SetStateAction<string>>;
   loading: boolean;
   toggleKibble: (index: number) => void;
   toggleSupplement: (id: string, index: number) => void;
@@ -51,8 +44,18 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [pet, setPet] = useState<Pet | null>(null);
   const [settings, setSettings] = useState<PetSettings>(DEFAULT_SETTINGS);
-  const [log, setLog] = useState<DailyLog>(DEFAULT_LOG);
+  const [viewDate, setViewDate] = useState<string>(today());
+  const [log, setLog] = useState<DailyLog | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const buildEmptyLog = useCallback((petId: string): DailyLog => ({
+    id: "",
+    pet_id: petId,
+    date: viewDate,
+    kibble_checked: 0,
+    supplements_status: {},
+    meds_status: {},
+  }), [viewDate]);
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
@@ -100,12 +103,11 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    const todayStr = today();
     const { data: logData } = await supabase
       .from("daily_logs")
       .select("*")
       .eq("pet_id", petData.id)
-      .eq("date", todayStr)
+      .eq("date", viewDate)
       .maybeSingle();
 
     if (logData) {
@@ -118,18 +120,11 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
         meds_status: logData.meds_status as Record<string, number>,
       });
     } else {
-      setLog({
-        id: "",
-        pet_id: petData.id,
-        date: todayStr,
-        kibble_checked: 0,
-        supplements_status: {},
-        meds_status: {},
-      });
+      setLog(null);
     }
 
     setLoading(false);
-  }, []);
+  }, [viewDate]);
 
   useEffect(() => {
     fetchData();
@@ -178,48 +173,85 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
 
   const toggleKibble = useCallback((index: number) => {
     setLog((prev) => {
-      let next = prev;
-      if (index === prev.kibble_checked && prev.kibble_checked < settings.daily_scoops) {
-        next = { ...prev, kibble_checked: prev.kibble_checked + 1 };
-      } else if (index === prev.kibble_checked - 1 && prev.kibble_checked > 0) {
-        next = { ...prev, kibble_checked: prev.kibble_checked - 1 };
+      const petId = pet?.id ?? settings.pet_id;
+      const base: DailyLog = prev ?? buildEmptyLog(petId);
+
+      let next = base;
+      if (index === base.kibble_checked && base.kibble_checked < settings.daily_scoops) {
+        next = { ...base, kibble_checked: base.kibble_checked + 1 };
+      } else if (index === base.kibble_checked - 1 && base.kibble_checked > 0) {
+        next = { ...base, kibble_checked: base.kibble_checked - 1 };
       }
-      if (next !== prev) persistLog(next);
+
+      if (!next.pet_id) {
+        return prev;
+      }
+
+      if (next !== base) {
+        if (next.date !== viewDate) {
+          next = { ...next, date: viewDate };
+        }
+        persistLog(next);
+      }
       return next;
     });
-  }, [settings.daily_scoops, persistLog]);
+  }, [pet?.id, settings.daily_scoops, settings.pet_id, viewDate, buildEmptyLog, persistLog]);
 
   const toggleSupplement = useCallback((id: string, index: number) => {
     setLog((prev) => {
-      const current = prev.supplements_status[id] ?? 0;
+      const petId = pet?.id ?? settings.pet_id;
+      const base: DailyLog = prev ?? buildEmptyLog(petId);
+      const current = base.supplements_status[id] ?? 0;
       const config = settings.supplements_config.find((s) => s.id === id);
       const max = config?.frequency ?? 1;
-      let next = prev;
+      let next = base;
       if (index === current && current < max) {
-        next = { ...prev, supplements_status: { ...prev.supplements_status, [id]: current + 1 } };
+        next = { ...base, supplements_status: { ...base.supplements_status, [id]: current + 1 } };
       } else if (index === current - 1 && current > 0) {
-        next = { ...prev, supplements_status: { ...prev.supplements_status, [id]: current - 1 } };
+        next = { ...base, supplements_status: { ...base.supplements_status, [id]: current - 1 } };
       }
-      if (next !== prev) persistLog(next);
+
+      if (!next.pet_id) {
+        return prev;
+      }
+
+      if (next !== base) {
+        if (next.date !== viewDate) {
+          next = { ...next, date: viewDate };
+        }
+        persistLog(next);
+      }
       return next;
     });
-  }, [settings.supplements_config, persistLog]);
+  }, [pet?.id, settings.pet_id, settings.supplements_config, viewDate, buildEmptyLog, persistLog]);
 
   const toggleMed = useCallback((id: string, index: number) => {
     setLog((prev) => {
-      const current = prev.meds_status[id] ?? 0;
+      const petId = pet?.id ?? settings.pet_id;
+      const base: DailyLog = prev ?? buildEmptyLog(petId);
+      const current = base.meds_status[id] ?? 0;
       const config = settings.meds_config.find((m) => m.id === id);
       const max = config?.frequency ?? 1;
-      let next = prev;
+      let next = base;
       if (index === current && current < max) {
-        next = { ...prev, meds_status: { ...prev.meds_status, [id]: current + 1 } };
+        next = { ...base, meds_status: { ...base.meds_status, [id]: current + 1 } };
       } else if (index === current - 1 && current > 0) {
-        next = { ...prev, meds_status: { ...prev.meds_status, [id]: current - 1 } };
+        next = { ...base, meds_status: { ...base.meds_status, [id]: current - 1 } };
       }
-      if (next !== prev) persistLog(next);
+
+      if (!next.pet_id) {
+        return prev;
+      }
+
+      if (next !== base) {
+        if (next.date !== viewDate) {
+          next = { ...next, date: viewDate };
+        }
+        persistLog(next);
+      }
       return next;
     });
-  }, [settings.meds_config, persistLog]);
+  }, [pet?.id, settings.meds_config, settings.pet_id, viewDate, buildEmptyLog, persistLog]);
 
   const updateSettings = useCallback((patch: Partial<PetSettings>) => {
     setSettings((prev) => {
@@ -297,6 +329,8 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
     pet,
     settings,
     log,
+    viewDate,
+    setViewDate,
     loading,
     toggleKibble,
     toggleSupplement,
@@ -308,7 +342,7 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
     addMed,
     updateMed,
     removeMed,
-  }), [pet, settings, log, loading, toggleKibble, toggleSupplement, toggleMed, updateSettings, addSupplement, updateSupplement, removeSupplement, addMed, updateMed, removeMed]);
+  }), [pet, settings, log, viewDate, setViewDate, loading, toggleKibble, toggleSupplement, toggleMed, updateSettings, addSupplement, updateSupplement, removeSupplement, addMed, updateMed, removeMed]);
 
   return (
     <PetStoreContext.Provider value={value}>
