@@ -6,6 +6,8 @@
 
 This plan states cases the spec already decides, and stops where it does not. Findings in [Review findings](#review-findings) are unresolved. Phase 2 must not pick them silently. Cases marked **blocked** are not to be implemented as assertions until the finding is resolved.
 
+This amendment adds LD-7, CI-1, the multi-timezone out-of-scope decision, and F14. It does not resolve F2, F3, F4, or F6.
+
 ---
 
 ## Scope under test
@@ -62,8 +64,8 @@ The repo has no test runner (`package.json` scripts are `dev`, `build`, `start`,
 | Layer | What it locks | Examples |
 |---|---|---|
 | Pure | Date oracle and payload parse, no React, no network | LD-*, RD-* |
-| Context | Optimistic state versus a deferred Supabase mock | OP-*, UE-*, RM-* |
-| Database | Schema, indexes, RLS with two authenticated clients plus anon | SC-*, RLS-* |
+| Context | Optimistic state versus a deferred Supabase mock, including the destination-day read | OP-*, UE-*, LD-7 |
+| Database | Schema, indexes, RLS, and concurrent inserts with two authenticated clients plus anon | SC-*, RLS-*, CI-1 |
 
 RLS cases are not unit tests. A mock of the client would not exercise Postgres policies.
 
@@ -94,6 +96,20 @@ Start from the LD-1 row (`local_date = 2026-09-21`). Call `updateEvent` with `oc
 - `local_date` is not written in a follow-up update.
 - Optimistic state shows `2026-09-22` before the mocked update resolves.
 - While `viewDate` is `2026-09-21`, the row leaves `events` as part of that same optimistic update. That is the specified context behavior. No UI copy is asserted.
+
+LD-2 stops once the row has left the old day. LD-7 is the other half.
+
+**LD-7. The destination day shows the moved row.**
+
+Continue from LD-2. `viewDate` is `2026-09-21` and the row is no longer in `events`. Set `viewDate` to `2026-09-22`, the new `local_date`. After the viewDate-scoped read for that day completes:
+
+- The same row is in `events`.
+- `occurred_at` is `2026-09-22T07:10:00.000Z`.
+- `local_date` is `2026-09-22`.
+
+LD-2 can pass while this fails: the event leaves one day and never arrives on the other. Both halves are required.
+
+This does not resolve [F6](#f6-fetch-gating-with-no-feature-flag). F6 is whether a household with nothing enabled pays for a query on mount. LD-7 is the read of the destination day after a move.
 
 **LD-3. A write that touches `occurred_at` recomputes `local_date` even when the instant is unchanged.**
 
@@ -143,6 +159,8 @@ Defer the mocked `insert` so it does not resolve. Call `addEvent`.
 
 `persistLog` and `persistSettings` do not read the Supabase error and do not restore the previous state. `addEvent` matches that. If the deferred insert rejects, the row with the client id remains in `events`.
 
+That assertion stays. [F14](#f14-a-failed-event-insert-is-a-worse-lie-than-a-failed-counter-write) records why matching the counter pattern is a worse failure for an event log. This amendment does not change the behavior.
+
 **OP-3. The optimistic row carries the computed `local_date` before the server responds.**
 
 Under the LD-5 clock, the row in state has `local_date === "2026-09-21"` before the insert resolves. The key and the day are both local; neither waits on the response.
@@ -175,9 +193,25 @@ Pet Q belongs to a different household.
 | RLS-11 | Anon | `SELECT` / `INSERT` / `UPDATE` / `DELETE` | Denied. No rows visible or changed |
 | RLS-12 | Member A | `INSERT` for pet Q | Denied. A member cannot write another household's pet |
 
-RLS-5 is the "shared by design" rule. RLS-6 through RLS-12 are the non-member rule, split by actor so a policy that only filters `SELECT` cannot pass.
+RLS-5 is the "shared by design" rule for sequential access: Member B acts after Member A's insert has committed. It does not cover two inserts in flight at once. That case is CI-1.
+
+RLS-6 through RLS-12 are the non-member rule, split by actor so a policy that only filters `SELECT` cannot pass.
 
 **Blocked on F3:** a member `UPDATE` that sets `pet_id` from P to Q. That is the usual `WITH CHECK` companion to these policies, but it is not stated separately from "match the existing shape," and the existing shape is not in the repo.
+
+### Concurrent inserts
+
+**CI-1. Concurrent inserts from two household members.**
+
+Database layer. Two authenticated clients, Member A and Member B, both in household H.
+
+Both insert an event for pet P at the same time: the two inserts are in flight together, not one after the other. After both commits:
+
+- Both rows exist.
+- The ids are distinct.
+- Member A and Member B each see both rows.
+
+This is the lost-update race the data model cites. A per-day jsonb blob is one shared row, so two household members logging at once can overwrite each other and drop an event. `pet_events` gives each insert its own row. RLS-5 does not lock this: a policy can allow sequential reads and writes and still lose one of two overlapping inserts if the write path collapses them onto one row.
 
 ### A malformed `data` payload does not crash the client
 
@@ -330,7 +364,7 @@ Blocked until then:
 - Whether mount / `visibilitychange` calls `from("pet_events")`.
 - The initial contents of `events` for a household with no feature enabled.
 
-SC-8 still applies to the query builder. OP-* and UE-1 still apply once a row is being written.
+SC-8 still applies to the query builder. OP-* and UE-1 still apply once a row is being written. LD-7 still applies to the destination-day read after a move. None of those choose the gate.
 
 ### F7. `updateEvent` patch allowlist
 
@@ -364,6 +398,14 @@ The column is a nullable FK to `profiles`. An open, non-blocking question asks w
 
 LD-5 and OP-3 assume the client instant and `today()` share a clock. They do not assume `crypto.randomUUID` specifically, only a UUID the client chose before the response. UUID version is unspecified.
 
+### F14. A failed event insert is a worse lie than a failed counter write
+
+OP-2 stands. A failed `addEvent` leaves the optimistic row in place, matching `persistLog` and `persistSettings`, which ignore the Supabase error and do not restore the previous state.
+
+The failure is worse for an event log than for a counter. A failed counter write is an off-by-one the user will notice on the scoop or pill row. A failed event insert shows a logged event that was never stored. The next fetch drops it, with no indication that the log was lost.
+
+This is an open finding for the spec. This amendment does not change OP-2 and does not add rollback, an error surface, or a retry.
+
 ---
 
 ## Explicitly not tested
@@ -373,3 +415,4 @@ LD-5 and OP-3 assume the client instant and `today()` share a clock. They do not
 - Copy that acknowledges a cross-midnight move.
 - `pet_schedules`, `next_due_at`, `completeSchedule`.
 - Sorting, `updated_at` maintenance, soft delete, and `logged_by` attribution, until the findings above are resolved.
+- Multi-timezone households. `local_date` is written from the logging client's timezone, so a household split across timezones can disagree about which day an event belongs to. Accepted and deliberately not handled: two people in different timezones sharing one dog is rare, and navigating to the adjacent day is an adequate workaround. Do not re-raise this as a finding.
