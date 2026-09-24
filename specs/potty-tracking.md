@@ -198,12 +198,13 @@ These need design before implementation, and whatever they become should be docu
 
 ## Design Brief
 
-Four things need design before this is buildable:
+Five things need design before this is buildable:
 
 1. **The pee droplet scale** — 5 ordinal marks, small → large. How does a mark read as "unfilled"? Does the whole row fill up to the selected point (like a rating) or does one mark highlight?
 2. **The poop size scale** — same structure, plus the dog-relative framing. Where does the "relative to your dog" acknowledgment live — persistent label, first-use tooltip, or in the mark labels themselves?
 3. **The consistency slider** — centered default, semantic endpoints, no medical vocabulary. This is the hardest one: it must be legible at a glance, funny without being crude, and operable one-handed outdoors.
 4. **The section + empty state + settings toggle** — how the Potty section sits alongside Kibble / Supplements / Meds without dominating the dashboard.
+5. **A failed, not-saved event row** — the visual treatment of an event that stayed on screen after the insert failed, and how retry is offered. Behavior is specified in `specs/pet-events-foundation-test-plan.md` (`saveState: 'failed'`, `retryEvent`). The visual treatment is not specified here.
 
 **Tone guardrail:** playful, not crude. The bar is that someone would be comfortable using this in a dog park with a stranger glancing at their screen. Goofy is the brand; juvenile is not.
 
@@ -247,7 +248,7 @@ Four things need design before this is buildable:
 1. **Migration** — `settings.potty_tracking_enabled`, `pets.size_class`
 2. **Context** — register the two potty event types; gate the `events` fetch on the flag
 3. **Settings** — toggle + size class capture (shippable and testable on its own; the dashboard section simply doesn't render yet)
-4. **Design** — the four items in the Design Brief
+4. **Design** — the five items in the Design Brief
 5. **Dashboard section** — event list + add actions
 6. **Scale + slider components** — built from design output, documented back into the design system
 

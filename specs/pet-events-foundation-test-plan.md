@@ -1,12 +1,27 @@
 # Pet events foundation — test plan (Step 0)
 
-**Status:** Phase 1, awaiting review. No implementation in this change.
+**Status:** Phase 1 spec. No implementation and no test code in this change.
 **Covers:** `specs/data-model.md` migration order steps 1–3 only.
-**Does not cover:** Potty Tracking steps 1–6 (`specs/potty-tracking.md`).
+**Does not cover:** Potty Tracking steps 1–6 (`specs/potty-tracking.md`), except the failed-row design question added there for F14.
 
-This plan states cases the spec already decides, and stops where it does not. Findings in [Review findings](#review-findings) are unresolved. Phase 2 must not pick them silently. Cases marked **blocked** are not to be implemented as assertions until the finding is resolved.
+## This pass
 
-This amendment adds LD-7, CI-1, the multi-timezone out-of-scope decision, and F14. It does not resolve F2, F3, F4, or F6.
+Resolved this pass: F2, F3, F4, F6, F10, F14. CI-1 rewritten. F15 added.
+
+Still open: F1, F5, F7, F8, F9, F11, F13, F15, the environment for the database-layer tests, and the multi-timezone decision (accepted and deferred, not to be re-raised).
+
+F12 remains a standing directive, not an open question.
+
+**Disagreement, recorded rather than applied.** Live `settings` and `daily_logs` have no `DELETE` policy. Copying that onto `pet_events` would make `removeEvent` fail for household members. `specs/data-model.md` requires delete. RLS-4 therefore expects a `DELETE` policy on `pet_events` using the same household expression. That is a deliberate divergence from the live tables. See [F3](#f3-existing-rls-sql-retrieved).
+
+## Phase split
+
+- **Phase 2a** — write the Vitest tests from this plan. No implementation.
+- **Phase 2b** — implement until those tests pass.
+
+2a is reviewed before 2b starts. One agent must not write the tests and the implementation together. Tests written against code that already exists get shaped to fit whatever was built and stop being an independent check.
+
+Cases marked **blocked** wait on an open finding. Phase 2a does not invent the missing assertion.
 
 ---
 
@@ -14,19 +29,21 @@ This amendment adds LD-7, CI-1, the multi-timezone out-of-scope decision, and F1
 
 Feature-agnostic infrastructure only:
 
-1. `pet_events` table, the two indexes in the spec, and RLS policies that scope through `pet_id → pets.household_id` the way `settings` and `daily_logs` do.
-2. A `PetEvent` discriminated union on `event_type`, parsed and validated on read and on write.
-3. `PetStoreContext` list primitives: `events`, `addEvent`, `updateEvent`, `removeEvent`, using the same optimistic-update-then-fire-and-forget pattern as `persistLog` and `persistSettings`.
-4. `updateEvent` is the only context path that changes `occurred_at`, and that write recomputes `local_date` in the same update.
+1. `pet_events` table, the two indexes in the spec, and RLS that uses the household expression retrieved in F3. `pet_events` also has a `DELETE` policy, which the live tables do not. See the disagreement above.
+2. A `PetEvent` type with no registered `event_type` members. Potty registers `potty_pee` and `potty_poop` at its own step.
+3. `PetStoreContext` primitives: `events`, `addEvent`, `updateEvent`, `removeEvent`, `retryEvent`. `updateEvent` and `removeEvent` stay optimistic-then-fire-and-forget. `addEvent` does not. It appends optimistically, issues the insert outside the state updater, and sets `saveState` when the insert settles. See F14.
+4. `addEvent` writes the initial `occurred_at` and `local_date` from one clock reading. `updateEvent` is the only path that changes `occurred_at` after insert, and that write recomputes `local_date` in the same update.
 
 ## Out of scope
 
-- Any potty UI, scale, slider, settings toggle, or `pets.size_class`.
+- Any potty UI, scale, slider, settings toggle, or `pets.size_class`. The failed-row visual treatment is an open design question in `specs/potty-tracking.md`. This plan does not specify it.
 - A `potty_events` table.
 - `pet_schedules` and `completeSchedule` (data-model migration order step 5).
-- Changes to the `daily_logs` table or to kibble / supplement / med behavior.
-- The cross-midnight acknowledgement UI. The context list dropping a row whose `local_date` no longer matches `viewDate` is in scope; announcing that move in the UI is not.
+- Changes to `daily_logs`, or to kibble, supplement, or med behavior, including their fire-and-forget failure handling.
+- An offline write queue.
+- The cross-midnight acknowledgement UI. The context list dropping a row whose `local_date` no longer matches `viewDate` is in scope. Announcing that move in the UI is not.
 - Soft delete. The written schema has no `deleted_at`. The open question in the data model is non-blocking and is not resolved here.
+- A configurable day-start offset. See F15.
 
 ## Oracle for `local_date`
 
@@ -40,7 +57,7 @@ function today(): string {
 
 The dashboard compares `viewDate` to `new Date().toLocaleDateString("en-CA")` the same way. There is no stored user timezone. "The user's local timezone" means the runtime default timezone that `toLocaleDateString` already uses.
 
-For an arbitrary instant the spec does not have a helper — `today()` only formats `new Date()`. The agreement oracle for an instant is the same locale call:
+For an arbitrary instant the spec does not have a helper. `today()` only formats `new Date()`. The agreement oracle for an instant is the same locale call:
 
 ```ts
 new Date(occurredAt).toLocaleDateString("en-CA")
@@ -48,7 +65,7 @@ new Date(occurredAt).toLocaleDateString("en-CA")
 
 A UTC date slice (`toISOString().slice(0, 10)`) is the wrong oracle. Cases below use instants where the local civil date and the UTC date differ, so that mistake fails.
 
-Frozen zone for the civil-date cases: `TZ=America/Los_Angeles` (PDT, UTC−7, on 2026-09-21/22). The test process must be started with that `TZ`. Setting `process.env.TZ` after startup is not reliable.
+Frozen zone for the civil-date cases: `America/Los_Angeles` (PDT, UTC−7, on 2026-09-21/22). The test script starts the process in that zone. Setting `process.env.TZ` after startup is not reliable, and the date cases are invalid if the process starts in any other timezone. See [F10](#f10-vitest-is-the-runner).
 
 | Instant (UTC) | Local time (PDT) | en-CA local date | UTC date |
 |---|---|---|---|
@@ -59,15 +76,22 @@ See [F1](#f1-today-does-not-format-an-arbitrary-instant) before exporting or ren
 
 ## Layers
 
-The repo has no test runner (`package.json` scripts are `dev`, `build`, `start`, `lint` only). This plan does not choose one. See [F10](#f10-no-test-runner). The cases split into three layers:
+[F10](#f10-vitest-is-the-runner) is resolved: Vitest is the runner. This pass does not install it and does not write tests.
 
-| Layer | What it locks | Examples |
+| Layer | Runner | What it locks |
 |---|---|---|
-| Pure | Date oracle and payload parse, no React, no network | LD-*, RD-* |
-| Context | Optimistic state versus a deferred Supabase mock, including the destination-day read | OP-*, UE-*, LD-7 |
-| Database | Schema, indexes, RLS, and concurrent inserts with two authenticated clients plus anon | SC-*, RLS-*, CI-1 |
+| Pure (`LD-*`, `RD-*`) | Vitest, node environment | Date oracle and payload parse. No React, no network |
+| Context (`OP-*`, `UE-*`, `LD-7`) | Vitest + jsdom + `@testing-library/react`. Supabase client mocked with deferred promises | Optimistic state and `saveState` |
+| Static guards (`CI-1a`, `CI-1b`) | Vitest, against source and the migration SQL | `insert` rather than `upsert`, and no per-day unique constraint |
+| Database (`SC-*`, `RLS-*`, `CI-1c`) | Not Vitest-with-mocks. A real Postgres is required. Mocks cannot exercise RLS | Schema, grants, policies, concurrent inserts |
 
-RLS cases are not unit tests. A mock of the client would not exercise Postgres policies.
+The script that runs the date cases is:
+
+```json
+"test": "TZ=America/Los_Angeles vitest run"
+```
+
+The database-layer environment is still open: local Supabase, a Supabase branch, or deferred to manual QA. Not decided here.
 
 ---
 
@@ -75,17 +99,18 @@ RLS cases are not unit tests. A mock of the client would not exercise Postgres p
 
 ### `local_date` is recomputed on every write that touches `occurred_at`
 
-**LD-1. Insert stores the en-CA local date of the event instant, not the UTC date.**
+**LD-1. Insert stores the en-CA local date of one client clock reading, not the UTC date and not `now()`.**
 
-With `TZ=America/Los_Angeles` and the event instant `2026-09-22T06:50:00.000Z`:
+With the process started in `TZ=America/Los_Angeles` and the event instant `2026-09-22T06:50:00.000Z`:
 
-- Persisted `local_date` is `2026-09-21`.
-- That string equals `new Date("2026-09-22T06:50:00.000Z").toLocaleDateString("en-CA")`.
-- It does not equal `2026-09-22`.
+- The insert payload contains `occurred_at` and `local_date`.
+- Both come from a single reading of the time. `local_date` is that reading's `toLocaleDateString("en-CA")`, which is `2026-09-21`.
+- `local_date` is not `2026-09-22`.
+- The insert does not omit `occurred_at` and does not rely on the column's `default now()`. The default stays in the schema as a safety net only.
 
 `local_date` is `NOT NULL` and has no database default, so the insert payload itself must include it. The client computes it. Postgres does not.
 
-Which clock supplies the *initial* `occurred_at` is [F2](#f2-who-writes-the-initial-occurred_at). LD-1 asserts the stored pair agrees. It does not assert whether `addEvent`'s insert body contains `occurred_at` until F2 is resolved.
+[F2](#f2-one-clock-writes-both-fields) is resolved. This case is unblocked.
 
 **LD-2. An edit across local midnight recomputes `local_date` in the same write.**
 
@@ -101,15 +126,14 @@ LD-2 stops once the row has left the old day. LD-7 is the other half.
 
 **LD-7. The destination day shows the moved row.**
 
-Continue from LD-2. `viewDate` is `2026-09-21` and the row is no longer in `events`. Set `viewDate` to `2026-09-22`, the new `local_date`. After the viewDate-scoped read for that day completes:
+Continue from LD-2. `viewDate` is `2026-09-21` and the row is no longer in `events`. Set `viewDate` to `2026-09-22`, the new `local_date`. The viewDate-scoped read runs, because [F6](#f6-step-0-always-fetches) is resolved. After that read completes:
 
 - The same row is in `events`.
 - `occurred_at` is `2026-09-22T07:10:00.000Z`.
 - `local_date` is `2026-09-22`.
+- `saveState` is `'saved'`. The read assigns that client-side. It is not a column.
 
 LD-2 can pass while this fails: the event leaves one day and never arrives on the other. Both halves are required.
-
-This does not resolve [F6](#f6-fetch-gating-with-no-feature-flag). F6 is whether a household with nothing enabled pays for a query on mount. LD-7 is the read of the destination day after a move.
 
 **LD-3. A write that touches `occurred_at` recomputes `local_date` even when the instant is unchanged.**
 
@@ -125,93 +149,135 @@ What else a patch may contain is [F7](#f7-updateevent-patch-allowlist). LD-4 onl
 
 **LD-5. "Now" agrees with `today()`.**
 
-With the clock frozen at `2026-09-22T06:50:00.000Z` and `TZ=America/Los_Angeles`:
+With the clock frozen at `2026-09-22T06:50:00.000Z` and the process started in `TZ=America/Los_Angeles`:
 
 - `new Date().toLocaleDateString("en-CA")` is `2026-09-21`.
 - An event inserted at that instant has `local_date === "2026-09-21"`.
 
 Same locale string `daily_logs` already uses. Not a UTC date, and not `toLocaleDateString("en-US")`.
 
-**LD-6. `updateEvent` is the only context method that can change `occurred_at`.**
+**LD-6. `updateEvent` is the only context method that changes `occurred_at` after insert.**
 
 - The public `addEvent` arguments are `(type, data)`. Callers cannot pass `occurred_at`.
+- `addEvent` itself writes the initial `occurred_at` on insert, from the same clock reading as `local_date`. That is required. It is not a violation of this rule.
+- `updateEvent` is the only path that changes `occurred_at` after insert, and it recomputes `local_date` in that same write.
 - `removeEvent` deletes. It does not update `occurred_at`.
+- `retryEvent` re-issues the original insert. It does not invent a new `occurred_at`.
 - No other `PetStoreContext` method issues an update of `pet_events.occurred_at`.
 - There is no second helper that accepts an `occurred_at` and writes it without recomputing `local_date`.
 
-This is an API-boundary test. It is not a database trigger. The spec puts the rule in one helper, and [F12](#f12-no-database-trigger-is-specified) says not to invent one.
+This is an API-boundary test. It is not a database trigger. [F12](#f12-standing-directive-no-database-trigger) stands.
 
-Whether the insert path may set the *initial* `occurred_at` inside `addEvent` is [F2](#f2-who-writes-the-initial-occurred_at). LD-6 forbids callers, and forbids any update path other than `updateEvent`. It does not, until F2 is resolved, forbid `addEvent` from putting the insert-time instant into the insert payload.
-
-### Optimistic insert keys the row before the server responds
+### Optimistic insert
 
 **OP-1. The row is in `events` with a client id before the insert resolves.**
 
 Defer the mocked `insert` so it does not resolve. Call `addEvent`.
 
-- `addEvent` returns `void` and returns before the insert resolves. Callers do not await it. Same shape as `toggleKibble` calling `persistLog` inside the state updater (`src/context/PetStore.tsx`).
-- `events` already contains the new row.
+- `addEvent` returns `void` and returns before the insert resolves. Callers do not await it.
+- The insert is not started from inside a `setEvents` updater. `addEvent` computes the row, calls `setEvents` once to append it, and issues the insert after that call. When the insert settles it calls `setEvents` again to set `saveState`. This is a deliberate divergence from `toggleKibble`, which calls `persistLog` inside the `setLog` updater. See [F14](#f14-failed-inserts-stay-visible-on-events-only).
+- Before the insert resolves, `events` contains the new row with `saveState: 'pending'`.
 - `row.id` is a UUID.
-- The `insert` payload uses that same `id`. The id is not taken from a server response, and the code does not rely on `gen_random_uuid()` for the optimistic key.
-- The column default may still exist (schema test SC-2). The client overrides it.
+- The `insert` payload uses that same `id`, plus the `occurred_at` and `local_date` from LD-1. The id is not taken from a server response, and the code does not rely on `gen_random_uuid()` for the optimistic key.
+- The column default may still exist (schema test SC-1). The client overrides it.
+- The payload does not contain `saveState`. OP-7 locks that for every write.
 
-**OP-2. A failed insert does not roll the optimistic row back.**
+**OP-2. A failed insert leaves the row and marks it `'failed'`.**
 
-`persistLog` and `persistSettings` do not read the Supabase error and do not restore the previous state. `addEvent` matches that. If the deferred insert rejects, the row with the client id remains in `events`.
+This used to assert that a failed insert matches `persistLog`: the row stays and the error is ignored. That assertion is withdrawn.
 
-That assertion stays. [F14](#f14-a-failed-event-insert-is-a-worse-lie-than-a-failed-counter-write) records why matching the counter pattern is a worse failure for an event log. This amendment does not change the behavior.
+`addEvent` catches the Supabase error. The row stays in `events`. `saveState` becomes `'failed'`. The row is not removed.
+
+This deliberately breaks from `persistLog` and `persistSettings`. A failed counter write is an off-by-one the user eventually notices. A failed event insert shows a logged event that was never stored and, on the next fetch, disappears with no indication. `public/sw.js` sends Supabase requests with `fetch(request)` and no cache fallback, and the app has no write queue, so a failed insert is the ordinary outdoor-on-cellular case. Kibble, supplements, and meds are unchanged.
 
 **OP-3. The optimistic row carries the computed `local_date` before the server responds.**
 
-Under the LD-5 clock, the row in state has `local_date === "2026-09-21"` before the insert resolves. The key and the day are both local; neither waits on the response.
+Under the LD-5 clock, the row in state has `local_date === "2026-09-21"` before the insert resolves. The key and the day are both local. Neither waits on the response.
 
-### RLS: household members can read and write; non-members cannot
+**OP-4. A deferred insert that rejects leaves the row marked `'failed'`.**
 
-The policy *behavior* is specified. The policy *SQL* is not in the repo. See [F3](#f3-existing-rls-sql-is-not-in-the-repo). These cases assert behavior. They do not assert that the `CREATE POLICY` text matches `settings` / `daily_logs` until those definitions are retrieved.
+Defer the mocked `insert`, call `addEvent`, then reject the insert.
+
+- The row is still in `events`.
+- `saveState` is `'failed'`.
+- The row is not removed.
+
+**OP-5. `retryEvent` re-issues the insert with the original id.**
+
+Given a row in `'failed'`, call `retryEvent(id)`.
+
+- The new insert uses that same id.
+- A new id is not generated.
+- The call is `.insert()`, not `.upsert()`, and it has no `onConflict` option.
+
+**OP-6. A duplicate-key error on retry means the original insert succeeded.**
+
+`retryEvent` rejects with a unique-violation, Postgres SQLSTATE `23505` (Supabase `error.code === "23505"`).
+
+- `saveState` becomes `'saved'`.
+- It does not become `'failed'`.
+- The row is not removed.
+
+Any other error leaves `saveState` as `'failed'`.
+
+**OP-7. `saveState` is client-only.**
+
+No insert payload and no update payload sent to Supabase contains `saveState`. The migration has no `saveState` column. The viewDate read does not select one.
+
+### RLS
+
+Policies were read from the live project `goofyscoops` (`aaxudbdckpqbsmdyxvlf`) on 2026-09-24. The expressions below are `pg_get_expr` output, not a paraphrase. [F3](#f3-existing-rls-sql-retrieved) quotes the policies, the roles, and the grants.
+
+`pet_events` uses this expression wherever the live policies use it. On `UPDATE`, the live `WITH CHECK` is null, so PostgreSQL applies the `USING` expression to the new row as well. A member `UPDATE` that sets `pet_id` from P to Q fails that check.
 
 Actors:
 
-- **Member A** and **Member B**: two authenticated users whose `profiles.household_id` is household H, which owns pet P.
-- **Outsider**: an authenticated user whose profile is a different household.
-- **Unaffiliated**: an authenticated user with no household.
-- **Anon**: the anon key, no session.
+- **Member A** and **Member B**: two `authenticated` users whose `profiles.household_id` is household H, which owns pet P.
+- **Outsider**: an `authenticated` user whose profile is a different household.
+- **Unaffiliated**: an `authenticated` user with no household.
+- **Anon**: the `anon` role, no session. `auth.uid()` is null.
 
 Pet Q belongs to a different household.
 
 | Id | Actor | Operation | Expected |
 |---|---|---|---|
-| RLS-1 | Member A | `SELECT` events for pet P | The row is returned |
-| RLS-2 | Member A | `INSERT` an event for pet P | Insert succeeds |
-| RLS-3 | Member A | `UPDATE` that event | Update succeeds |
-| RLS-4 | Member A | `DELETE` that event | Delete succeeds |
-| RLS-5 | Member B | `SELECT`, `UPDATE`, and `DELETE` an event Member A inserted | All succeed. No per-member privacy |
-| RLS-6 | Outsider | `SELECT` events for pet P | Zero rows |
-| RLS-7 | Outsider | `INSERT` for pet P | Fails or inserts zero rows. No row is visible to Member A afterward |
-| RLS-8 | Outsider | `UPDATE` an event on pet P | Zero rows changed. Member A still sees the original values |
-| RLS-9 | Outsider | `DELETE` an event on pet P | Zero rows deleted. The event still exists for Member A |
-| RLS-10 | Unaffiliated | `SELECT` / `INSERT` for pet P | Same denials as the outsider |
-| RLS-11 | Anon | `SELECT` / `INSERT` / `UPDATE` / `DELETE` | Denied. No rows visible or changed |
-| RLS-12 | Member A | `INSERT` for pet Q | Denied. A member cannot write another household's pet |
+| RLS-1 | Member A | `SELECT` events for pet P | The row is returned. `SELECT` is `TO public` and the `USING` expression matches |
+| RLS-2 | Member A | `INSERT` an event for pet P | Insert succeeds. `INSERT` is `TO authenticated` and the `WITH CHECK` expression matches |
+| RLS-3 | Member A | `UPDATE` that event without changing `pet_id` | Update succeeds. `UPDATE` is `TO public` and the `USING` expression matches |
+| RLS-4 | Member A | `DELETE` that event | Delete succeeds. `pet_events` has a `DELETE` policy with the same expression. This is the divergence from the live tables, which have no `DELETE` policy |
+| RLS-5 | Member B | `SELECT`, `UPDATE`, and `DELETE` an event Member A inserted | All succeed, after Member A's insert has committed. No per-member privacy. This is sequential. Overlapping inserts are CI-1c |
+| RLS-6 | Outsider | `SELECT` events for pet P | Zero rows. The `USING` expression does not match |
+| RLS-7 | Outsider | `INSERT` for pet P | Rejected by `WITH CHECK`. No row is visible to Member A afterward |
+| RLS-8 | Outsider | `UPDATE` an event on pet P | Zero rows changed. The existing row fails `USING`. Member A still sees the original values |
+| RLS-9 | Outsider | `DELETE` an event on pet P | Zero rows deleted. The `DELETE` policy's expression does not match. The event still exists for Member A |
+| RLS-10 | Unaffiliated | `SELECT` / `INSERT` for pet P | `SELECT` returns zero rows. `INSERT` fails `WITH CHECK` |
+| RLS-11 | Anon | `SELECT` / `INSERT` / `UPDATE` / `DELETE` | `SELECT` and `UPDATE` are `TO public`, and `auth.uid()` is null, so zero rows are visible or changed. `INSERT` is `TO authenticated`, so anon is not permitted. `DELETE` is denied by the expression |
+| RLS-12 | Member A | `INSERT` for pet Q | Rejected by `WITH CHECK` |
+| RLS-13 | Member A | `UPDATE` `pet_id` from P to Q | Rejected. Zero rows change. The event remains on pet P. The live `UPDATE` policies store `WITH CHECK` as null, and PostgreSQL then uses the `USING` expression as the check on the new row |
 
-RLS-5 is the "shared by design" rule for sequential access: Member B acts after Member A's insert has committed. It does not cover two inserts in flight at once. That case is CI-1.
+RLS-6 through RLS-13 are the non-member and cross-household rules, split by actor and command so a policy that only filters `SELECT` cannot pass.
 
-RLS-6 through RLS-12 are the non-member rule, split by actor so a policy that only filters `SELECT` cannot pass.
+### Inserts do not collapse to one row per day
 
-**Blocked on F3:** a member `UPDATE` that sets `pet_id` from P to Q. That is the usual `WITH CHECK` companion to these policies, but it is not stated separately from "match the existing shape," and the existing shape is not in the repo.
+`persistLog` calls `.upsert()` with `onConflict: "pet_id,date"` because `daily_logs` is one row per pet per day (`src/context/PetStore.tsx`). Phase 2 is told to follow that pattern. Copying the upsert onto `pet_events` would leave one row per day that overwrites itself and silently drops events, including two logs from a single user. The previous CI-1 ("both rows exist, distinct ids") cannot fail against that bug: two inserts with distinct primary keys both succeed, and an upsert on `(pet_id, local_date)` would not be what that case called.
 
-### Concurrent inserts
+**CI-1a. `addEvent` calls `.insert()`, not `.upsert()`.**
 
-**CI-1. Concurrent inserts from two household members.**
+Static guard against the source. The insert has no `onConflict` option.
 
-Database layer. Two authenticated clients, Member A and Member B, both in household H.
+**CI-1b. No unique constraint or unique index on a per-day key.**
 
-Both insert an event for pet P at the same time: the two inserts are in flight together, not one after the other. After both commits:
+Static guard against the migration SQL. No unique constraint and no unique index on `(pet_id, local_date)` or on `(pet_id, event_type, local_date)`. The non-unique indexes in SC-2 remain.
+
+**CI-1c. Two overlapping inserts both persist.**
+
+Database layer. Two `authenticated` clients, Member A and Member B, both in household H. Both insert an event for pet P on the same `local_date`, in flight together, not one after the other. After both commits:
 
 - Both rows exist.
 - The ids are distinct.
 - Member A and Member B each see both rows.
 
-This is the lost-update race the data model cites. A per-day jsonb blob is one shared row, so two household members logging at once can overwrite each other and drop an event. `pet_events` gives each insert its own row. RLS-5 does not lock this: a policy can allow sequential reads and writes and still lose one of two overlapping inserts if the write path collapses them onto one row.
+CI-1a and CI-1b fail if phase 2 copies `persistLog`'s upsert. CI-1c is the database consequence, not a substitute for those two guards.
 
 ### A malformed `data` payload does not crash the client
 
@@ -219,32 +285,34 @@ This is the lost-update race the data model cites. A per-day jsonb blob is one s
 
 Pass each of these rows through the read parser and through the context fetch that copies rows into `events`. None of them throw. The provider still renders. `events` is still an array.
 
+Step 0 has no registered event types ([F4](#f4-step-0-ships-an-empty-union)), so every `event_type` is unexpected. The rows below are still required.
+
 | Row | Why it is unexpected |
 |---|---|
-| `data: {}` | Valid jsonb default, not a valid typed payload for any registry type that requires fields |
+| `data: {}` | Valid jsonb default, not a typed payload |
 | `data: { size: 99 }` | Out of the documented 1..5 range |
 | `data: { size: "3" }` | Right key, wrong JSON type |
 | `data: { size: null }` | Explicit null |
 | `data: []` | Array instead of object |
 | `data: { unexpected: true }` | Unknown keys only |
-| `event_type: "not_a_registered_type"` with `data: {}` | Type the union does not list |
-| `event_type: "potty_pee"` with `data: {}` | Known name, missing required fields, including if that type is not part of the step 0 union |
+| `event_type: "not_a_registered_type"` with `data: {}` | Type the step 0 union does not list |
+| `event_type: "potty_pee"` with `data: {}` | A name potty will register later. In step 0 it is not a member, and the payload is missing fields |
 
 **RD-2. A write of a payload the parser rejects does not throw out of the provider.**
 
-Call `addEvent` with a payload the read parser would reject. The call does not throw, because the existing mutation methods do not throw on bad persist input either — they return `void`.
+Call `addEvent` with a payload the read parser would reject. The call does not throw. `addEvent` returns `void`.
 
-What the function does *instead* of throwing (no-op, drop, persist anyway) is [F5](#f5-validation-failure-mode-is-unspecified) and [F4](#f4-which-types-exist-in-step-0). RD-2 asserts only the absence of a crash.
+What the function does instead of throwing (no-op, drop, persist anyway, or mark `'failed'`) is [F5](#f5-validation-failure-mode-is-unspecified). RD-2 asserts only the absence of a crash. F4 no longer blocks this. Step 0 has no valid registered payload to round-trip.
 
 **RD-3. Do not assert the fate of the bad row.**
 
-Blocked by [F5](#f5-validation-failure-mode-is-unspecified). Presence in `events`, omission, or an error field are all unspecified. RD-1 and RD-2 are satisfied as long as the client does not crash.
+Blocked by F5. Presence in `events`, omission, or an error field are all unspecified. RD-1 and RD-2 are satisfied as long as the client does not crash.
 
 ---
 
 ## Cases the spec already decides
 
-These are in scope for step 0 and do not depend on a finding, except where noted.
+These are in scope for step 0 and do not depend on an open finding, except where noted.
 
 **SC-1. Columns match the data-model `CREATE TABLE`.**
 
@@ -252,10 +320,16 @@ These are in scope for step 0 and do not depend on a finding, except where noted
 
 `event_type` is `text`, not a Postgres enum. That matches the SQL block. The open question about an enum is already leaned away from, and is non-blocking.
 
+There is no `saveState` column.
+
+`default now()` on `occurred_at` is present and is not the source of the value `addEvent` sends.
+
 **SC-2. Indexes.**
 
 - `pet_events_pet_date_idx` on `(pet_id, local_date)`
 - `pet_events_pet_type_time_idx` on `(pet_id, event_type, occurred_at desc)`
+
+Neither index is unique. CI-1b.
 
 **SC-3. No check constraint on `data`.**
 
@@ -263,7 +337,7 @@ The spec says Postgres cannot enforce per-type payload rules and that validation
 
 **SC-4. Foreign key `pet_id` is `ON DELETE CASCADE`.**
 
-Assert the constraint. Do not assert a pet-delete RLS flow; pet deletion is not part of this spec.
+Assert the constraint. Do not assert a pet-delete RLS flow. Pet deletion is not part of this spec.
 
 **SC-5. Scope guards.**
 
@@ -273,146 +347,207 @@ The step 0 migration and client change do not:
 - add `settings.potty_tracking_enabled` or `pets.size_class`
 - alter `daily_logs`
 - add a partial index, check, or policy that treats events as rare or optional (for example, excluding an event type, or enabling the table only when a flag is set)
+- change kibble, supplement, or med mutations
+- add an offline write queue
 
 **SC-6. `removeEvent` deletes the row optimistically.**
 
-Defer the mocked delete. After `removeEvent(id)` returns, `events` no longer contains that id. The delete is issued with that id. The row is not soft-deleted. On rejection, it stays gone, matching OP-2 and `persistLog`.
+Defer the mocked delete. After `removeEvent(id)` returns, `events` no longer contains that id. The delete is issued with that id. The row is not soft-deleted. F14 does not change `removeEvent`. On rejection, the row stays gone. There is no `'failed'` state for a delete.
 
 **SC-7. `created_at` is not part of the update payload.**
 
 The spec marks `created_at` system-owned and immutable. `updateEvent` does not send `created_at`.
 
-**SC-8. The fetch for a view, when it runs, filters columns rather than `data`.**
+**SC-8. The viewDate read filters columns rather than `data`, and it runs.**
 
-Filters are `pet_id` and `local_date` (the `viewDate`). It does not filter on `data->>...`. The spec forbids correctness-critical logic on the jsonb payload.
+Step 0 always runs this read on mount, when `viewDate` changes, and on `visibilitychange`. There is no feature flag. Filters are `pet_id` and `local_date` (the `viewDate`). It does not filter on `data->>...`. The spec forbids correctness-critical logic on the jsonb payload.
 
-When that query is allowed to run at all is [F6](#f6-fetch-gating-with-no-feature-flag). SC-8 applies to the query the primitive builds. It does not require the query to run on mount.
+Rows loaded by this read are given `saveState: 'saved'` on the client.
+
+**SC-9. Step 0 registers no event types.**
+
+The `PetEvent` union has no members. `potty_pee` and `potty_poop` are not added in step 0. Potty registers them at its own step.
 
 **UE-1. Optimistic `updateEvent` applies the patch before the update resolves.**
 
-Defer the mock. A data patch is visible on the row in `events` before the promise resolves, and `updateEvent` returns `void` immediately.
+Defer the mock. A data patch is visible on the row in `events` before the promise resolves, and `updateEvent` returns `void` immediately. F14 does not add `saveState` transitions to `updateEvent`.
 
 ---
 
 ## Review findings
 
-These are underspecified. They are not resolved by this plan.
-
 ### F1. `today()` does not format an arbitrary instant
+
+Open.
 
 The spec says to compute `local_date` with "the same helper as `daily_logs`" and names `PetStoreContext.today()`. In the code, `today` is a private function, it is not on the context value, and it only formats the current time.
 
-LD-1 and LD-5 can still be written against `toLocaleDateString("en-CA")`. Phase 2 has to decide whether to export one function that both call sites use. This plan does not choose the function's name, file, or whether `today()` becomes `localDate(instant = new Date())`.
+LD-1 and LD-5 are written against `toLocaleDateString("en-CA")`. This plan does not choose the function's name, file, or whether `today()` becomes `localDate(instant = new Date())`. F2 requires one clock reading for `occurred_at` and `local_date`. It does not choose the helper's export.
 
-### F2. Who writes the initial `occurred_at`
+### F2. One clock writes both fields
 
-Three instructions conflict:
+Resolved.
 
-1. `occurred_at` defaults to insert time (`default now()`, and the potty spec's "defaults to insert time").
-2. `local_date` is computed on the client from that instant, with the same clock as `today()`, and is `NOT NULL` with no database default.
-3. The task says `updateEvent` must be the **only** path that writes `occurred_at`.
+`addEvent` sends `occurred_at` explicitly from the client, in the same expression that computes `local_date`. Both derive from a single reading of the time. The column `default now()` stays as a schema safety net and is never relied on.
 
-If `addEvent` omits `occurred_at`, Postgres fills it from the database clock. The client must still send `local_date` from the browser clock. Across local midnight those two clocks land on different days, which is the bug the spec exists to prevent.
+`updateEvent` is the only path that changes `occurred_at` after insert. `addEvent` setting it on insert is correct, not a violation.
 
-If `addEvent` sends `occurred_at` itself, then a path other than `updateEvent` writes the column. That can be read as violating instruction 3, or as "callers cannot pass `occurred_at`; only `updateEvent` changes it after insert." The spec does not say which reading is intended.
+LD-1 and LD-6 are unblocked.
 
-**Not chosen.** LD-6 tests the public boundary only. LD-1 asserts the stored `local_date` matches the stored `occurred_at` under the en-CA oracle. The insert payload's inclusion of `occurred_at` stays unasserted until this is decided.
+### F3. Existing RLS SQL, retrieved
 
-### F3. Existing RLS SQL is not in the repo
+Resolved. Read-only, from project `goofyscoops` (`aaxudbdckpqbsmdyxvlf`) on 2026-09-24. No table, policy, or grant was created or changed.
 
-`settings` and `daily_logs` policies were applied in the Supabase dashboard (PRD). There is no migration in git, and the Supabase MCP server is not authenticated, so the `USING` / `WITH CHECK` text and the grants were not copied.
+RLS is enabled and not forced on both `public.settings` and `public.daily_logs` (`relrowsecurity` true, `relforcerowsecurity` false).
 
-RLS-1 through RLS-12 test the behavior the data model states. They do not lock:
+These are separate per-command policies. There is no `FOR ALL` policy. There is no `DELETE` policy on either table.
 
-- `FOR ALL` versus four policies
-- whether `UPDATE` `WITH CHECK` rejects moving `pet_id` to another household
-- `GRANT`s to `authenticated` versus `anon`
-- the exact helper expression (`profiles.household_id` compared through `pets`)
+The `USING` or `WITH CHECK` expression, wherever one is stored, is this `pg_get_expr` text:
 
-Phase 2 cannot claim "matching the existing policy shape" until those definitions are pasted into this plan or checked into the repo. Do not invent a predicate.
+```sql
+(pet_id IN ( SELECT pets.id
+   FROM pets
+  WHERE (pets.household_id = ( SELECT profiles.household_id
+           FROM profiles
+          WHERE (profiles.id = auth.uid())))))
+```
 
-### F4. Which types exist in the step 0 union
+Household membership is that expression: `pet_id` must be a `pets.id` whose `pets.household_id` equals `profiles.household_id` for `profiles.id = auth.uid()`.
 
-The data-model registry lists `potty_pee`, `potty_poop`, `reactivity`, `schedule_completed`, `weight`, and `incident`, and says every type in use has a union member.
+| Table | Policy | Command | Roles | USING | WITH CHECK |
+|---|---|---|---|---|---|
+| `daily_logs` | `Users can create household daily logs` | `INSERT` | `{authenticated}` | null | the expression |
+| `daily_logs` | `Users can read household daily logs` | `SELECT` | `{public}` | the expression | null |
+| `daily_logs` | `Users can update household daily logs` | `UPDATE` | `{public}` | the expression | null |
+| `settings` | `Users can create household pet settings` | `INSERT` | `{authenticated}` | null | the expression |
+| `settings` | `Users can read household pet settings` | `SELECT` | `{public}` | the expression | null |
+| `settings` | `Users can update household pet settings` | `UPDATE` | `{public}` | the expression | null |
 
-Potty Tracking's own order puts "register the two potty event types" at step 2, after this foundation. The task says step 0 is feature-agnostic and not potty UI. `kibble_scoop` is described as a payload that must fit later (`data: {}`) and is not in the registry.
+`information_schema.role_table_grants` for `table_schema = 'public'`, grantee `anon` or `authenticated`, on both `settings` and `daily_logs`, lists the same privileges for each grantee on each table:
 
-**Not chosen:** empty union until a feature registers types, all six registry types now, or the six plus `kibble_scoop`.
+`DELETE`, `INSERT`, `REFERENCES`, `SELECT`, `TRIGGER`, `TRUNCATE`, `UPDATE`.
 
-Consequences that stay unasserted:
+The grants include `DELETE`. The policies do not. For `anon` and `authenticated`, RLS denies a command that has no policy. A household member's `DELETE` on `settings` or `daily_logs` therefore changes zero rows.
 
-- A valid round-trip of any particular payload.
-- Per-type required fields on write (`consistency` on `potty_poop`, `schedule_id` on `schedule_completed`, `unit` on `weight`, and the rest).
-- Numeric ranges 1..5, except as *unexpected* input in RD-1, which only asserts that the client does not crash.
+PostgreSQL, when `WITH CHECK` is omitted, uses the `USING` expression as the check on the new row. The live `UPDATE` policies store `WITH CHECK` as null, so an `UPDATE` that sets `pet_id` from P to Q fails that expression. RLS-13 asserts the rejection. Phase 2 matches the live `UPDATE` shape: `USING` is the expression, `WITH CHECK` is omitted.
 
-RD-1 does not depend on this finding.
+**Not copied.** `pet_events` gets a `DELETE` policy the live tables do not have. `USING` is the expression above, `WITH CHECK` is omitted, role is `public`, matching the live `UPDATE` policy's shape. Role `public` rather than `authenticated` follows `SELECT` and `UPDATE`, not `INSERT`. `INSERT` on `pet_events` stays `TO authenticated` with the expression as `WITH CHECK` and `USING` null, matching the live `INSERT` policies. `SELECT` matches the live `SELECT` policies. Grants on `pet_events` match the grant list above.
+
+RLS-1 through RLS-13 assert this shape.
+
+### F4. Step 0 ships an empty union
+
+Resolved.
+
+Step 0 ships the `PetEvent` type with no registered event types. Potty registers `potty_pee` and `potty_poop` at its own step. Step 0 stays feature-agnostic. `kibble_scoop` is not added here.
+
+No step 0 case round-trips a potty payload or any other registered payload. RD-1 still requires that an unexpected shape, including `event_type: "potty_pee"`, does not crash. SC-9 locks the empty union.
 
 ### F5. Validation failure mode is unspecified
 
-The spec requires parse-and-validate on read and on write, and this task requires that a bad payload does not crash the client. It does not say whether a bad row is dropped, kept as an unknown variant, or reported.
+Open.
 
-RD-1 and RD-2 stop at "does not throw." Any assertion about the resulting `events` contents is blocked.
+The spec requires parse-and-validate on read and on write, and a bad payload must not crash the client. It does not say whether a bad row is dropped, kept as an unknown variant, or reported.
 
-### F6. Fetch gating with no feature flag
+RD-1 and RD-2 stop at "does not throw." Any assertion about the resulting `events` contents is blocked. F14's `'failed'` state is for a failed insert request, not for a payload the parser rejects. This finding does not decide that those are the same.
 
-The data model says the events fetch is gated on whichever feature flag is relevant, so a household with nothing enabled pays no query. Step 0 forbids adding `settings.potty_tracking_enabled`, and no other flag exists.
+### F6. Step 0 always fetches
 
-**Not chosen:** always fetch, never fetch, or a gate with nothing to read.
+Resolved.
 
-Blocked until then:
+Step 0 always runs the viewDate-scoped read. There is no flag to gate on yet. Potty adds `settings.potty_tracking_enabled` and the gate together, at its own step.
 
-- Whether mount / `visibilitychange` calls `from("pet_events")`.
-- The initial contents of `events` for a household with no feature enabled.
-
-SC-8 still applies to the query builder. OP-* and UE-1 still apply once a row is being written. LD-7 still applies to the destination-day read after a move. None of those choose the gate.
+The read runs on mount, when `viewDate` changes, and on `visibilitychange`. LD-7 and SC-8 are unblocked.
 
 ### F7. `updateEvent` patch allowlist
+
+Open.
 
 The signature is `updateEvent(id, patch)`. The spec says the helper recomputes `local_date` when `occurred_at` changes. It does not say whether `patch` may include `event_type`, `pet_id`, `local_date`, `logged_by`, `created_at`, or `id`.
 
 Unblocked: if `occurred_at` is in the patch, the persisted `local_date` equals the en-CA date of that instant. A caller-supplied `local_date`, if the type even allows it, does not win.
 
-Blocked: assertions that the helper rejects `event_type` or `pet_id` changes.
+Blocked: assertions that the helper rejects `event_type` or `pet_id` changes. RLS-13 is the database rejecting a `pet_id` move across households. It is not a TypeScript allowlist.
 
 ### F8. Nothing writes `updated_at`
+
+Open.
 
 The column is nullable, with no default and no trigger in the schema block. Do not assert that `updateEvent` sets it, and do not add a trigger in order to have something to test.
 
 ### F9. Sort direction of `events`
 
+Open.
+
 The prose says the list sorts by `occurred_at` for correct chronology. The index is `occurred_at desc`. Ascending versus descending for the context array is not stated. No order assertion.
 
-### F10. No test runner
+### F10. Vitest is the runner
 
-This plan does not add Vitest, Jest, Playwright, or pgTAP. Choosing one is a review decision before these cases are committed as code. Phase 2 of the task is the foundation implementation, not a harness.
+Resolved.
+
+Vitest is the runner. The split and the `TZ=America/Los_Angeles` script are in [Layers](#layers). This pass does not install Vitest and does not add test code.
+
+Open item, not decided here: where the database-layer tests run. Local Supabase, a Supabase branch, or deferred to manual QA. Those tests are not Vitest tests against a mocked client.
 
 ### F11. `logged_by` on insert
 
+Open.
+
 The column is a nullable FK to `profiles`. An open, non-blocking question asks whether automation may leave it null. `addEvent(type, data)` has no actor argument. Do not require the insert to set `logged_by`, and do not require it to equal `auth.uid()`.
 
-### F12. No database trigger is specified
+### F12. Standing directive: no database trigger
 
-"Do not let callers write `occurred_at` directly" is a helper rule. A trigger that recomputes `local_date` or rejects `occurred_at` updates would be a new mechanism. Do not add one to satisfy LD-6, and do not write a test that expects one.
+Not an open question.
+
+"Do not let callers write `occurred_at` directly" is a helper rule, now read as F2: callers cannot pass `occurred_at`, `addEvent` writes the initial value, and `updateEvent` is the only later change. A trigger that recomputes `local_date` or rejects `occurred_at` updates would be a new mechanism. Do not add one to satisfy LD-6, and do not write a test that expects one.
 
 ### F13. Direct clock source for the optimistic row
 
+Open.
+
 LD-5 and OP-3 assume the client instant and `today()` share a clock. They do not assume `crypto.randomUUID` specifically, only a UUID the client chose before the response. UUID version is unspecified.
 
-### F14. A failed event insert is a worse lie than a failed counter write
+### F14. Failed inserts stay visible, on events only
 
-OP-2 stands. A failed `addEvent` leaves the optimistic row in place, matching `persistLog` and `persistSettings`, which ignore the Supabase error and do not restore the previous state.
+Resolved. Option 3: a visible failed state. Events only.
 
-The failure is worse for an event log than for a counter. A failed counter write is an off-by-one the user will notice on the scoop or pill row. A failed event insert shows a logged event that was never stored. The next fetch drops it, with no indication that the log was lost.
+`addEvent` stops being purely fire-and-forget. On a failed insert the row stays in `events`, is marked as not saved, and the user can retry it.
 
-This is an open finding for the spec. This amendment does not change OP-2 and does not add rollback, an error surface, or a retry.
+This deliberately breaks from `persistLog` and `persistSettings`. A failed counter write is an off-by-one the user eventually notices. A failed event insert shows a logged event that was never stored and disappears on the next fetch with no indication. `public/sw.js` handles Supabase hosts with `e.respondWith(fetch(request))` and returns without a cache fallback. There is no write queue anywhere in the app. A lost insert is the normal outdoor-on-cellular case, not an exotic one.
+
+Scope limit: events only. Do not change kibble, supplement, or med behavior. Do not build an offline write queue. `updateEvent` and `removeEvent` are unchanged by this resolution. Their failures are not given a `saveState`.
+
+Context surface for step 0:
+
+- Each row in `events` carries a transient `saveState`: `'pending' | 'saved' | 'failed'`.
+- `saveState` is client-only. It is not a `pet_events` column, not in the migration, and never sent to or read from the database.
+- An optimistic insert starts as `'pending'`. A successful insert sets `'saved'`. A failed insert sets `'failed'`. A row loaded by the viewDate read is `'saved'`.
+- `addEvent` catches the Supabase error and sets `saveState` to `'failed'` rather than ignoring it.
+- `retryEvent(id)` re-issues the insert using the same client-generated id.
+- A retry that fails with a duplicate-key / unique-violation error (`23505`) means the original insert actually succeeded and only the response was lost. Treat that specific error as success and set `saveState` to `'saved'`. Do not surface it as a failure.
+
+Structural consequence. `toggleKibble` calls `persistLog` from inside `setLog`'s updater callback. `addEvent` cannot follow that shape. It must update state a second time when the insert settles, and calling setState from inside an updater is a React anti-pattern. `addEvent` computes the new row, calls `setEvents` once to append it optimistically, and issues the insert outside the updater, then calls `setEvents` again on settle to set `saveState`. This is a deliberate divergence from the existing pattern.
+
+OP-2 is amended: the row stays and is marked `'failed'`. OP-1 no longer requires the persist call to sit inside the updater. OP-4, OP-5, OP-6, and OP-7 lock the rest. The visual treatment of a `'failed'` row is an open design question in `specs/potty-tracking.md`. It is not specified here.
+
+### F15. Day boundary at midnight
+
+Open. Recorded and deferred. Not resolved. Do not implement it. Do not change `local_date` behavior.
+
+An event logged at 00:30 counts for the new day, so a late-night walk lands on a day the user thinks of as tomorrow. This is not F2. F2 is two clocks disagreeing about one instant. This is not the multi-timezone decision. That decision is two clients in different zones. This is where a single zone cuts the day.
+
+`daily_logs` already has this. Kibble resets at midnight. Events make a pre-existing app property visible. They do not introduce a new bug.
+
+The likely eventual fix is a configurable day-start offset (for example 4am) applied the same way to `daily_logs` and `pet_events`. Not in step 0.
 
 ---
 
 ## Explicitly not tested
 
 - Potty defaults (`size` 3, `consistency` 3, optional `duration_secs`). Those belong to potty step 2.
-- Settings toggle, size class, dashboard section, scales, slider.
+- Settings toggle, size class, dashboard section, scales, slider, and the visual treatment of a failed event row.
 - Copy that acknowledges a cross-midnight move.
 - `pet_schedules`, `next_due_at`, `completeSchedule`.
 - Sorting, `updated_at` maintenance, soft delete, and `logged_by` attribution, until the findings above are resolved.
 - Multi-timezone households. `local_date` is written from the logging client's timezone, so a household split across timezones can disagree about which day an event belongs to. Accepted and deliberately not handled: two people in different timezones sharing one dog is rare, and navigating to the adjacent day is an adequate workaround. Do not re-raise this as a finding.
+- Kibble, supplement, and med failure handling, and any offline write queue.
