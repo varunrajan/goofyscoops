@@ -8,11 +8,13 @@
 
 Resolved this pass: F2, F3, F4, F6, F10, F14. CI-1 rewritten. F15 added.
 
+This amendment: the viewDate read merges, so a `'failed'` or `'pending'` row the server does not return is kept (RF-1 through RF-4, part of F14). `SELECT`, `UPDATE`, and `DELETE` on `pet_events` are `TO authenticated`, a second deliberate divergence from the live tables.
+
 Still open: F1, F5, F7, F8, F9, F11, F13, F15, the environment for the database-layer tests, and the multi-timezone decision (accepted and deferred, not to be re-raised).
 
 F12 remains a standing directive, not an open question.
 
-**Disagreement, recorded rather than applied.** Live `settings` and `daily_logs` have no `DELETE` policy. Copying that onto `pet_events` would make `removeEvent` fail for household members. `specs/data-model.md` requires delete. RLS-4 therefore expects a `DELETE` policy on `pet_events` using the same household expression. That is a deliberate divergence from the live tables. See [F3](#f3-existing-rls-sql-retrieved).
+**Two deliberate divergences from the live tables.** See [F3](#f3-existing-rls-sql-retrieved). `settings` and `daily_logs` have no `DELETE` policy, and their `SELECT` and `UPDATE` policies are `TO public`. `pet_events` has a `DELETE` policy, and `SELECT`, `UPDATE`, and `DELETE` are `TO authenticated`. `INSERT` stays `TO authenticated`, matching live. The `DELETE` policy is required because `specs/data-model.md` says household members can delete. The role change is required because a new table can fail closed at the role instead of only inside the household expression.
 
 ## Phase split
 
@@ -29,7 +31,7 @@ Cases marked **blocked** wait on an open finding. Phase 2a does not invent the m
 
 Feature-agnostic infrastructure only:
 
-1. `pet_events` table, the two indexes in the spec, and RLS that uses the household expression retrieved in F3. `pet_events` also has a `DELETE` policy, which the live tables do not. See the disagreement above.
+1. `pet_events` table, the two indexes in the spec, and RLS that uses the household expression retrieved in F3. `SELECT`, `INSERT`, `UPDATE`, and `DELETE` are all `TO authenticated`. The `DELETE` policy, and the `authenticated` role on `SELECT` and `UPDATE`, diverge from the live tables. See the summary above.
 2. A `PetEvent` type with no registered `event_type` members. Potty registers `potty_pee` and `potty_poop` at its own step.
 3. `PetStoreContext` primitives: `events`, `addEvent`, `updateEvent`, `removeEvent`, `retryEvent`. `updateEvent` and `removeEvent` stay optimistic-then-fire-and-forget. `addEvent` does not. It appends optimistically, issues the insert outside the state updater, and sets `saveState` when the insert settles. See F14.
 4. `addEvent` writes the initial `occurred_at` and `local_date` from one clock reading. `updateEvent` is the only path that changes `occurred_at` after insert, and that write recomputes `local_date` in the same update.
@@ -81,7 +83,7 @@ See [F1](#f1-today-does-not-format-an-arbitrary-instant) before exporting or ren
 | Layer | Runner | What it locks |
 |---|---|---|
 | Pure (`LD-*`, `RD-*`) | Vitest, node environment | Date oracle and payload parse. No React, no network |
-| Context (`OP-*`, `UE-*`, `LD-7`) | Vitest + jsdom + `@testing-library/react`. Supabase client mocked with deferred promises | Optimistic state and `saveState` |
+| Context (`OP-*`, `UE-*`, `LD-7`, `RF-*`) | Vitest + jsdom + `@testing-library/react`. Supabase client mocked with deferred promises | Optimistic state, `saveState`, and the viewDate merge |
 | Static guards (`CI-1a`, `CI-1b`) | Vitest, against source and the migration SQL | `insert` rather than `upsert`, and no per-day unique constraint |
 | Database (`SC-*`, `RLS-*`, `CI-1c`) | Not Vitest-with-mocks. A real Postgres is required. Mocks cannot exercise RLS | Schema, grants, policies, concurrent inserts |
 
@@ -224,6 +226,38 @@ Any other error leaves `saveState` as `'failed'`.
 
 No insert payload and no update payload sent to Supabase contains `saveState`. The migration has no `saveState` column. The viewDate read does not select one.
 
+### The viewDate read keeps unsaved rows
+
+The read merges. It does not replace `events`. The rule is in SC-8 and is part of F14. `fetchData` replaces `log` today. Copying that onto `events` would drop a `'failed'` row on the next refresh, which is the bug F14 exists to stop.
+
+**RF-1. A `'failed'` row survives a read that does not return it.**
+
+`events` holds a row with `saveState: 'failed'` whose `local_date` is the current `viewDate`. The viewDate read resolves with a result that does not include that id.
+
+- The row is still in `events`.
+- `saveState` is still `'failed'`.
+
+**RF-2. A `'pending'` row that the server also returns becomes one row.**
+
+`events` holds a row with `saveState: 'pending'`. The viewDate read resolves with that same id.
+
+- `events` contains one row with that id, not two.
+- `saveState` is `'saved'`.
+
+**RF-3. A kept `'failed'` row does not appear on a different day.**
+
+`events` holds a `'failed'` row whose `local_date` is `2026-09-21`. Set `viewDate` to `2026-09-22`. The read for `2026-09-22` does not return that id, so the merge keeps the row.
+
+- The row remains in `events` and stays `'failed'`.
+- It is not rendered while `viewDate` is `2026-09-22`.
+
+**RF-4. A successful retry of a kept `'failed'` row is not duplicated by the next read.**
+
+Start from RF-1. `retryEvent` succeeds for that id, so `saveState` becomes `'saved'`. The next viewDate read returns that same id.
+
+- `events` contains one row with that id.
+- `saveState` is `'saved'`.
+
 ### RLS
 
 Policies were read from the live project `goofyscoops` (`aaxudbdckpqbsmdyxvlf`) on 2026-09-24. The expressions below are `pg_get_expr` output, not a paraphrase. [F3](#f3-existing-rls-sql-retrieved) quotes the policies, the roles, and the grants.
@@ -241,17 +275,17 @@ Pet Q belongs to a different household.
 
 | Id | Actor | Operation | Expected |
 |---|---|---|---|
-| RLS-1 | Member A | `SELECT` events for pet P | The row is returned. `SELECT` is `TO public` and the `USING` expression matches |
+| RLS-1 | Member A | `SELECT` events for pet P | The row is returned. `SELECT` is `TO authenticated` and the `USING` expression matches |
 | RLS-2 | Member A | `INSERT` an event for pet P | Insert succeeds. `INSERT` is `TO authenticated` and the `WITH CHECK` expression matches |
-| RLS-3 | Member A | `UPDATE` that event without changing `pet_id` | Update succeeds. `UPDATE` is `TO public` and the `USING` expression matches |
-| RLS-4 | Member A | `DELETE` that event | Delete succeeds. `pet_events` has a `DELETE` policy with the same expression. This is the divergence from the live tables, which have no `DELETE` policy |
+| RLS-3 | Member A | `UPDATE` that event without changing `pet_id` | Update succeeds. `UPDATE` is `TO authenticated` and the `USING` expression matches |
+| RLS-4 | Member A | `DELETE` that event | Delete succeeds. `DELETE` is `TO authenticated` with the same expression. The live tables have no `DELETE` policy |
 | RLS-5 | Member B | `SELECT`, `UPDATE`, and `DELETE` an event Member A inserted | All succeed, after Member A's insert has committed. No per-member privacy. This is sequential. Overlapping inserts are CI-1c |
 | RLS-6 | Outsider | `SELECT` events for pet P | Zero rows. The `USING` expression does not match |
 | RLS-7 | Outsider | `INSERT` for pet P | Rejected by `WITH CHECK`. No row is visible to Member A afterward |
 | RLS-8 | Outsider | `UPDATE` an event on pet P | Zero rows changed. The existing row fails `USING`. Member A still sees the original values |
 | RLS-9 | Outsider | `DELETE` an event on pet P | Zero rows deleted. The `DELETE` policy's expression does not match. The event still exists for Member A |
 | RLS-10 | Unaffiliated | `SELECT` / `INSERT` for pet P | `SELECT` returns zero rows. `INSERT` fails `WITH CHECK` |
-| RLS-11 | Anon | `SELECT` / `INSERT` / `UPDATE` / `DELETE` | `SELECT` and `UPDATE` are `TO public`, and `auth.uid()` is null, so zero rows are visible or changed. `INSERT` is `TO authenticated`, so anon is not permitted. `DELETE` is denied by the expression |
+| RLS-11 | Anon | `SELECT` / `INSERT` / `UPDATE` / `DELETE` | Denied at the role. All four policies are `TO authenticated`, so `anon` is not permitted to run any of them. Nothing is visible or changed |
 | RLS-12 | Member A | `INSERT` for pet Q | Rejected by `WITH CHECK` |
 | RLS-13 | Member A | `UPDATE` `pet_id` from P to Q | Rejected. Zero rows change. The event remains on pet P. The live `UPDATE` policies store `WITH CHECK` as null, and PostgreSQL then uses the `USING` expression as the check on the new row |
 
@@ -358,11 +392,19 @@ Defer the mocked delete. After `removeEvent(id)` returns, `events` no longer con
 
 The spec marks `created_at` system-owned and immutable. `updateEvent` does not send `created_at`.
 
-**SC-8. The viewDate read filters columns rather than `data`, and it runs.**
+**SC-8. The viewDate read filters columns rather than `data`, and it merges.**
 
 Step 0 always runs this read on mount, when `viewDate` changes, and on `visibilitychange`. There is no feature flag. Filters are `pet_id` and `local_date` (the `viewDate`). It does not filter on `data->>...`. The spec forbids correctness-critical logic on the jsonb payload.
 
-Rows loaded by this read are given `saveState: 'saved'` on the client.
+The read merges into `events`. It does not replace the list. `fetchData` today calls `setLog` with the server row, which would discard a `'failed'` event on the next refresh. That must not happen. The merge rule is part of [F14](#f14-failed-inserts-stay-visible-on-events-only).
+
+- Rows from the server are keyed by id and given `saveState: 'saved'`.
+- A local row with `saveState` `'failed'` or `'pending'` that is absent from the server result is kept, still `'failed'` or `'pending'`.
+- A local `'saved'` row that is absent from the server result is not kept. That is how a deleted event, and a saved event whose `local_date` is no longer this `viewDate`, leaves the list.
+- A local row whose id is in the server result becomes one row, not two, with `saveState: 'saved'`.
+- A kept `'failed'` row is rendered only when its own `local_date` equals the current `viewDate`. The same render filter is not stated for `'pending'`.
+
+RF-1 through RF-4 lock this.
 
 **SC-9. Step 0 registers no event types.**
 
@@ -431,7 +473,20 @@ The grants include `DELETE`. The policies do not. For `anon` and `authenticated`
 
 PostgreSQL, when `WITH CHECK` is omitted, uses the `USING` expression as the check on the new row. The live `UPDATE` policies store `WITH CHECK` as null, so an `UPDATE` that sets `pet_id` from P to Q fails that expression. RLS-13 asserts the rejection. Phase 2 matches the live `UPDATE` shape: `USING` is the expression, `WITH CHECK` is omitted.
 
-**Not copied.** `pet_events` gets a `DELETE` policy the live tables do not have. `USING` is the expression above, `WITH CHECK` is omitted, role is `public`, matching the live `UPDATE` policy's shape. Role `public` rather than `authenticated` follows `SELECT` and `UPDATE`, not `INSERT`. `INSERT` on `pet_events` stays `TO authenticated` with the expression as `WITH CHECK` and `USING` null, matching the live `INSERT` policies. `SELECT` matches the live `SELECT` policies. Grants on `pet_events` match the grant list above.
+**Not copied.** Two deliberate divergences.
+
+1. `pet_events` gets a `DELETE` policy the live tables do not have. `USING` is the expression above. `WITH CHECK` is omitted, matching the live `UPDATE` policies' check shape.
+2. `SELECT`, `UPDATE`, and `DELETE` on `pet_events` are `TO authenticated`, not `TO public`. The live `SELECT` and `UPDATE` policies are `TO public`, so they are evaluated for `anon` and deny only because `auth.uid()` is null and the household expression fails. That is correct, and it fails open at the role and closed only at the expression. `pet_events` is a new table with nothing depending on that shape, so it fails closed at the role instead.
+
+`INSERT` stays `TO authenticated` with the expression as `WITH CHECK` and `USING` null, matching the live `INSERT` policies. Grants on `pet_events` match the grant list above. The grants may still include `anon`. The policies do not apply to `anon`.
+
+This does not foreclose a future guest or pre-account mode.
+
+- `TO public` grants a guest nothing today. The household expression resolves through `profiles.id = auth.uid()`, so a user with no `auth.uid()` has no profile, no household, and no pet, and matches zero rows either way.
+- A local-only guest mode needs no database policy at all.
+- Supabase anonymous auth gives a guest a real `auth.uid()` and an `authenticated` session, which `TO authenticated` covers.
+
+Neither path requires `TO public`.
 
 RLS-1 through RLS-13 assert this shape.
 
@@ -521,14 +576,15 @@ Context surface for step 0:
 
 - Each row in `events` carries a transient `saveState`: `'pending' | 'saved' | 'failed'`.
 - `saveState` is client-only. It is not a `pet_events` column, not in the migration, and never sent to or read from the database.
-- An optimistic insert starts as `'pending'`. A successful insert sets `'saved'`. A failed insert sets `'failed'`. A row loaded by the viewDate read is `'saved'`.
+- An optimistic insert starts as `'pending'`. A successful insert sets `'saved'`. A failed insert sets `'failed'`.
+- The viewDate read merges. It does not replace `events`. This is part of this resolution, not a separate one. A wholesale replace, which is what `fetchData` does to `log` today, would drop a `'failed'` row on the next refresh and undo the point of keeping it. Server rows are keyed by id and given `'saved'`. A local `'failed'` or `'pending'` row the server result does not contain is kept. A local `'saved'` row the server result does not contain is not kept. A local row the server result does contain reconciles to one row by id. A kept `'failed'` row is rendered only when its `local_date` equals the current `viewDate`. SC-8 and RF-1 through RF-4 lock this.
 - `addEvent` catches the Supabase error and sets `saveState` to `'failed'` rather than ignoring it.
 - `retryEvent(id)` re-issues the insert using the same client-generated id.
 - A retry that fails with a duplicate-key / unique-violation error (`23505`) means the original insert actually succeeded and only the response was lost. Treat that specific error as success and set `saveState` to `'saved'`. Do not surface it as a failure.
 
 Structural consequence. `toggleKibble` calls `persistLog` from inside `setLog`'s updater callback. `addEvent` cannot follow that shape. It must update state a second time when the insert settles, and calling setState from inside an updater is a React anti-pattern. `addEvent` computes the new row, calls `setEvents` once to append it optimistically, and issues the insert outside the updater, then calls `setEvents` again on settle to set `saveState`. This is a deliberate divergence from the existing pattern.
 
-OP-2 is amended: the row stays and is marked `'failed'`. OP-1 no longer requires the persist call to sit inside the updater. OP-4, OP-5, OP-6, and OP-7 lock the rest. The visual treatment of a `'failed'` row is an open design question in `specs/potty-tracking.md`. It is not specified here.
+OP-2 is amended: the row stays and is marked `'failed'`. OP-1 no longer requires the persist call to sit inside the updater. OP-4, OP-5, OP-6, and OP-7 lock the rest. RF-1 through RF-4 lock the merge. The visual treatment of a `'failed'` row is an open design question in `specs/potty-tracking.md`. It is not specified here.
 
 ### F15. Day boundary at midnight
 
