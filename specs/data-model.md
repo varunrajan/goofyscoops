@@ -175,7 +175,7 @@ Because it is denormalized, it goes stale:
 
 - **Compute `local_date` client-side, using the same helper as `daily_logs`.** Never let the two disagree about where a day ends.
 - **Recompute it on every update that touches `occurred_at`.** An 11:50pm entry corrected to 12:10am belongs to a different day. If `local_date` is only computed on insert, that row is silently stranded on the wrong date forever and will never appear in any view.
-- Enforce this in a single `updatePetEvent` helper. Do not let callers write `occurred_at` directly.
+- Callers cannot pass `occurred_at`. `addEvent` writes the initial `occurred_at` and `local_date` from one reading of the clock. `updateEvent` is the only path that changes `occurred_at` after insert, and it recomputes `local_date` in that same write. The column `default now()` stays as a safety net and is not relied on. Case-level detail is in [`specs/pet-events-foundation-test-plan.md`](./pet-events-foundation-test-plan.md).
 
 ### Editing across a day boundary
 
@@ -189,25 +189,52 @@ In a jsonb blob keyed by day, a cross-midnight correction means moving data betw
 
 ## Access control
 
-`pet_events` and `pet_schedules` both scope through `pet_id → pets.household_id`, matching the existing policy shape on `settings` and `daily_logs`. Everyone in a household can read, insert, update, and delete for their pets. There is no per-member privacy within a household — consistent with the rest of the app, where all state is shared by design.
+Household membership is the expression retrieved from the live `settings` and `daily_logs` policies. Quoted from [`specs/pet-events-foundation-test-plan.md`](./pet-events-foundation-test-plan.md) (F3):
+
+```sql
+(pet_id IN ( SELECT pets.id
+   FROM pets
+  WHERE (pets.household_id = ( SELECT profiles.household_id
+           FROM profiles
+          WHERE (profiles.id = auth.uid())))))
+```
+
+Everyone in a household can read, insert, update, and delete events for their pets. There is no per-member privacy within a household.
+
+`pet_events` policies are `TO authenticated` for `SELECT`, `INSERT`, `UPDATE`, and `DELETE`. This diverges from the live `settings` and `daily_logs` tables, which are `TO public` on `SELECT` and `UPDATE`. Their `INSERT` policies are already `TO authenticated`.
+
+`pet_events` has a `DELETE` policy. The live tables do not. This document requires household members to delete, and the live shape would have made `removeEvent` silently change zero rows.
+
+`pet_schedules`, when it is built, follows the `pet_events` shape (`TO authenticated`, `DELETE` policy present), not the live `settings` / `daily_logs` shape.
+
+Case-level detail is in the test plan.
 
 ---
 
 ## Context layer
 
-`PetStoreContext` currently exposes a single `log: DailyLog | null`. Both new shapes are lists, so they need list-shaped primitives following the same optimistic-update-then-fire-and-forget-persist pattern already used by `persistLog` and `persistSettings`:
+`PetStoreContext` currently exposes a single `log: DailyLog | null`. Both new shapes are lists.
+
+`updateEvent` and `removeEvent` follow the optimistic-update-then-fire-and-forget pattern used by `persistLog` and `persistSettings`. `addEvent` does not. It appends the row optimistically, issues the insert outside the state updater, and sets `saveState` when the insert settles.
+
+Each row in `events` carries a client-only `saveState`: `'pending' | 'saved' | 'failed'`. It is never a column, and it is never sent to or read from the database.
+
+The viewDate read merges into `events`. It does not replace the list. A wholesale replace would drop `'failed'` rows on the next refresh.
 
 ```ts
-events: PetEvent[]                                  // for (pet_id, viewDate)
-addEvent(type, data): void
-updateEvent(id, patch): void                        // recomputes local_date if occurred_at changes
+events: PetEvent[]                                  // for (pet_id, viewDate); each row has client-only saveState
+addEvent(type, data): void                          // optimistic append, insert outside the updater, saveState on settle
+updateEvent(id, patch): void                        // only later change to occurred_at; recomputes local_date in that write
 removeEvent(id): void
+retryEvent(id): void                                 // re-issues the insert with the same client id
 
 schedules: PetSchedule[]
 completeSchedule(id, note?): void                   // writes event + bumps schedule
 ```
 
-Fetch of `events` should be gated on whichever feature flag is relevant, so households with nothing enabled pay no query cost.
+Step 0 always fetches, because no flag exists yet. A feature that adds a flag adds the gate at the same time. The original sentence — fetch gated on whichever feature flag is relevant, so households with nothing enabled pay no query cost — is what F6 in the test plan was.
+
+Case-level detail is in [`specs/pet-events-foundation-test-plan.md`](./pet-events-foundation-test-plan.md).
 
 ---
 
@@ -233,7 +260,7 @@ Two new tables cover seven of nine.
 
 1. `pet_events` + indexes + RLS policies
 2. `pet_events` TypeScript types and the discriminated union
-3. Context primitives (`events`, `addEvent`, `updateEvent`, `removeEvent`)
+3. Context primitives (`events`, `addEvent`, `updateEvent`, `removeEvent`, `retryEvent`)
 4. First consumer: Potty Tracking (see `specs/potty-tracking.md`)
 5. `pet_schedules` + `completeSchedule`, when the first schedule feature is built
 
