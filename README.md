@@ -15,25 +15,32 @@ Built for households with one dog, two dogs, strong opinions about kibble portio
 - **Household sync** — invite anyone in your household; everyone sees the same state in real time
 - **Onboarding flow** — set up your pet's name, scoop size, and daily portions in under a minute
 - **PWA support** — install on your home screen, works offline, enables push notifications
+- **Toggle dates** - go back day-by-day to check past date feedings and usage
 
 ---
 
 ## Roadmap
 
 ### Now
+- [Potty tracking](.specs/potty-tracking.md) — useful for illness monitoring for senior dogs, potty training for pups
 - [Multi-pet support](./specs/multi-pet-support.md)
-- Reactivity log with voice capture — log your dog's threshold level and notes mid-walk without fumbling with your phone
 
 ### Next
 - Medication overdue alerts — interval-based reminders ("it's been 40 days since flea & tick")
-- Potty tracking — useful for illness monitoring, puppies, and the occasional hormonal surprise
 - Twice-daily feeding with per-meal tracking
 - Wet food & additive tracking (yes, including pumpkin portion limits)
 
 ### Later
-- Health history & calendar view — know exactly when the last ear infection was before the vet asks
+- Reactivity log with voice capture — log your dog's threshold level and notes mid-walk without fumbling with your phone
+  - Likely with gradual voice feature enhancement:
+    1. *Simple Voice*: Prove voice → structured data where errors are trivial (scoops, supplements, meds), mapping into schema that already exists
+    2. *Reactivity Tracker*: Build data stores for trigger presence, intensity, threshold, reaction, cooldown, and unstructured notes
+       - extend the same extraction to reactivity training high-dimensional data captured while the owner is scanning for threats and interrupting behavior in real time; post-hoc recall is expensive to log in a structured manner
+    3. *Trends:* surface trends over accumulated log of entries (what worked, which triggers, which actions preceded which outcomes
+    4. *Decision Intelligence:* Proactively guide the next outing and make suggestions instead of making users read charts
+- Health history & calendar view: know exactly when the last ear infection was before the vet asks
 - Vaccination & shot records with renewal reminders
-- House sitter report — a shareable summary of your dog's full routine
+- House sitter report: a shareable summary of your dog's full routine
 
 ---
 
