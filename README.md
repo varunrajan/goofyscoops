@@ -22,7 +22,7 @@ Built for households with one dog, two dogs, strong opinions about kibble portio
 ## Roadmap
 
 ### Now
-- [Potty tracking](.specs/potty-tracking.md) — useful for illness monitoring for senior dogs, potty training for pups
+- [Potty tracking](./specs/potty-tracking.md) — useful for illness monitoring for senior dogs, potty training for pups
 - [Multi-pet support](./specs/multi-pet-support.md)
 
 ### Next
