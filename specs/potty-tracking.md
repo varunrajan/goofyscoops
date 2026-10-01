@@ -77,8 +77,6 @@ It is also, unavoidably, a gross feature. Some households will want it; many won
 - **Pee size scale (5 points, droplet)** — Each pee row carries a 5-point scale rendered as droplets, small → large, adjustable inline after logging. Defaults to the middle value.
   - Acceptance: Adjusting a row's size updates and persists without a page reload.
 
-- **Pee duration (optional)** — Duration in seconds may be captured on a pee event. Optional, nullable, never required to log. See Open Questions for the proposed capture interaction.
-
 - **One-tap poop logging** — Same as pee: tap → new row, no modal.
 
 - **Poop size scale (5 points)** — Five graduated 💩-style marks, small → large, with an explicit indication that the scale is **relative to this dog**. Defaults to the middle value.
@@ -119,7 +117,7 @@ It is also, unavoidably, a gross feature. Some households will want it; many won
 
 ### This is not a potty table
 
-`daily_logs` is **one row per pet per day** holding aggregate counters (`kibble_checked: int`, `supplements_status: jsonb` as id→count). It has no per-event timestamps and no per-event attributes. Potty tracking needs individually timestamped events, each carrying its own size, duration, and consistency, and each individually deletable and correctable. Forcing this into `daily_logs.jsonb` would produce a growing unbounded blob rewritten on every tap, with lost-update races between two household members logging at the same time.
+`daily_logs` is **one row per pet per day** holding aggregate counters (`kibble_checked: int`, `supplements_status: jsonb` as id→count). It has no per-event timestamps and no per-event attributes. Potty tracking needs individually timestamped events, each carrying its own size and consistency, and each individually deletable and correctable. Forcing this into `daily_logs.jsonb` would produce a growing unbounded blob rewritten on every tap, with lost-update races between two household members logging at the same time.
 
 But the answer is **not** a `potty_events` table. Potty tracking is the first of at least three event-shaped features on the roadmap (reactivity log, per-meal feeding, health incidents), and a table per feature is how this app ends up with fifteen tables and no coherent model.
 
@@ -130,7 +128,7 @@ But the answer is **not** a `potty_events` table. Potty tracking is the first of
 ```ts
 type PottyPeeEvent = {
   event_type: 'potty_pee'
-  data: { size: 1 | 2 | 3 | 4 | 5; duration_secs?: number }
+  data: { size: 1 | 2 | 3 | 4 | 5 }
 }
 
 type PottyPoopEvent = {
@@ -139,7 +137,9 @@ type PottyPoopEvent = {
 }
 ```
 
-Both default `size` to `3`. `consistency` defaults to `3` ("just right"). `duration_secs` is nullable and never required to log.
+Both default `size` to `3`. `consistency` defaults to `3` ("just right").
+
+**Pee has no duration.** `size` is the only amount recorded for a pee. Duration was dropped on 2026-10-01 in design pass 2 (Potty Tracking v2), which treats size as the only measure of amount. This closes both duration questions that were open here. No load or volume field replaces it. If duration ever returns, it comes back as an optional field added to `potty_pee`, per the payload rules in `specs/data-model.md`.
 
 Register both in the event type table in `specs/data-model.md`.
 
@@ -228,10 +228,10 @@ Five things need design before this is buildable:
 
 ## Open Questions
 
+Resolved 2026-10-01: pee duration is dropped and `size` is the only pee amount. See Technical Notes.
+
 | Question | Owner | Blocking? |
 |---|---|---|
-| **How is pee duration captured?** Proposal: press-and-hold the add action to time it, release to log — with the resulting droplet size pre-suggested from the duration and adjustable. A plain tap logs without duration. Needs validation: is a stopwatch realistic mid-walk, or is size alone sufficient? | Design | Yes |
-| **Are size and duration redundant?** A longer pee is a bigger pee. If duration is the better signal, the droplet scale may be derived rather than user-set. Resolving this could remove a whole control. | Product / Design | Yes |
 | How does the 5-mark scale fit inside `max-w-md` at 44px touch targets? | Design | Yes |
 | What are the consistency slider's endpoint labels? Needs to avoid both clinical ("diarrhea") and crude. | Design / UX copy | Yes |
 | Is the feature called "Potty" in the UI? README roadmap says "Potty tracking"; data model uses `potty_*`. Alternatives: "Business", "Outside", "Bathroom". | UX copy | No |

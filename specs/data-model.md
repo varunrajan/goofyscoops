@@ -57,7 +57,7 @@ create index pet_events_pet_type_time_idx on pet_events (pet_id, event_type, occ
 
 | `event_type` | `data` payload | Introduced by |
 |---|---|---|
-| `potty_pee` | `{ size: 1..5, duration_secs?: number }` | Potty Tracking |
+| `potty_pee` | `{ size: 1..5 }` | Potty Tracking |
 | `potty_poop` | `{ size: 1..5, consistency: 1..5 }` | Potty Tracking |
 | `reactivity` | `{ level: 1..5, trigger?: string, note?: string }` | Reactivity Log (roadmap) |
 | `schedule_completed` | `{ schedule_id: uuid, note?: string }` | Schedules (below) |
@@ -71,7 +71,7 @@ create index pet_events_pet_type_time_idx on pet_events (pet_id, event_type, occ
 **What it costs.** Postgres cannot constrain `data->>'size'` to 1–5 per type. Type safety lives in TypeScript, at the boundary, and nowhere else. That means:
 
 - Parse and validate on read as well as write. Do not trust a `data` blob just because your own code wrote it — an older client version may have written a different shape.
-- Version the payloads implicitly by never removing a field, only adding optional ones. If a payload must change incompatibly, introduce a new `event_type` rather than mutating the old one in place.
+- Version the payloads implicitly by never removing a field, only adding optional ones. If a payload must change incompatibly, introduce a new `event_type` rather than mutating the old one in place. This rule binds from the first production write of a type. Before any row exists, the registry entry is a draft and can change freely. `potty_pee` lost its `duration_secs` field this way on 2026-10-01, before `pet_events` shipped.
 - Keep `data` small and flat. It is a payload, not a document.
 
 **When this stops being right.** At the point where a single event type has enough rows and enough analytical querying that jsonb extraction becomes the bottleneck, promote that type to its own table. For a household app measured in thousands of rows, that point is far away and may never arrive. Revisit if any single `event_type` passes ~1M rows.
