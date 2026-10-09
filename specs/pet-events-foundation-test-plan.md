@@ -600,7 +600,7 @@ The likely eventual fix is a configurable day-start offset (for example 4am) app
 
 ## Explicitly not tested
 
-- Potty defaults (`size` 3, `consistency` 3, optional `duration_secs`). Those belong to potty step 2.
+- Potty defaults (`size` 3, `consistency` 3). Those belong to potty step 2.
 - Settings toggle, size class, dashboard section, scales, slider, and the visual treatment of a failed event row.
 - Copy that acknowledges a cross-midnight move.
 - `pet_schedules`, `next_due_at`, `completeSchedule`.

@@ -1,6 +1,6 @@
 # Potty Tracking
 
-**Status:** Draft — pending design
+**Status:** Draft — design resolved 2026-10-01, see [`specs/potty-tracking-handoff.md`](./potty-tracking-handoff.md)
 **Author:** Rooney
 **Date:** 2026-09-21
 **Roadmap slot:** "Potty tracking" (README → Next)
@@ -74,22 +74,25 @@ It is also, unavoidably, a gross feature. Some households will want it; many won
 - **One-tap pee logging** — Tapping the pee add-action immediately creates an event with a default size and appends a new row. No modal, no confirmation.
   - Acceptance: Tap → row appears optimistically → persists in background, matching the existing optimistic-update pattern in `PetStoreContext`.
 
-- **Pee size scale (5 points, droplet)** — Each pee row carries a 5-point scale rendered as droplets, small → large, adjustable inline after logging. Defaults to the middle value.
+- **Pee size scale (5 points, droplet)** — Each pee row carries a 5-point scale rendered as droplets, small → large, adjustable inline after logging. Defaults to the middle value. Rendered as a fill bar: a yellow bar grows from the left to the selected droplet. Words: Tiny, Small, Medium, Big, Huge.
   - Acceptance: Adjusting a row's size updates and persists without a page reload.
-
-- **Pee duration (optional)** — Duration in seconds may be captured on a pee event. Optional, nullable, never required to log. See Open Questions for the proposed capture interaction.
 
 - **One-tap poop logging** — Same as pee: tap → new row, no modal.
 
-- **Poop size scale (5 points)** — Five graduated 💩-style marks, small → large, with an explicit indication that the scale is **relative to this dog**. Defaults to the middle value.
+- **Poop size scale (5 points)** — Five graduated 💩-style marks, small → large, with an explicit indication that the scale is **relative to this dog**. Defaults to the middle value. One mark is highlighted; the readout above it carries the dog-relative framing ("**Big** for a Toy pup").
   - Acceptance: The scale's labels or accessory copy reference the dog's size class (e.g. for a Toy dog, the scale is anchored to what's large *for a Toy dog*).
 
-- **Poop consistency slider (5 points, centered)** — A single slider per poop row.
-  - **Center (3) = "just right"** and is the default position.
+- **Poop consistency slider (5 points, centered)** — A single slider per poop row, labeled **Texture** in the UI. The stored field stays `consistency`.
+  - **Center (3) = "Just right"** and is the default position.
   - **Slid left = looser**, toward diarrhea.
   - **Slid right = firmer**, toward constipated.
+  - Words, 1–5: Soupy, Squishy, Just right, Crumbly, Pebbly. End labels under the track: Soupy · Just right · Pebbly.
+  - Tap-to-snap detents; no drag in v1.
   - Acceptance: A newly logged poop sits at center with no interaction required.
   - Acceptance: The endpoints are labeled in plain, non-clinical language.
+
+- **One open row at a time** — A new event lands at the top of the list, open, at its defaults. Every other row collapses to a one-line summary ("Big · Just right"). Tapping a collapsed row opens it. Delete is only on the open row.
+  - Acceptance: Logging an event collapses whichever row was open.
 
 - **Delete an event** — Any event logged on the current `viewDate` can be removed.
   - Acceptance: Removing a row deletes the underlying event and the row disappears optimistically.
@@ -99,6 +102,8 @@ It is also, unavoidably, a gross feature. Some households will want it; many won
 - **Per-pet scoping** — Potty tracking is enabled and logged per pet, matching how `settings` and `daily_logs` are already keyed.
 
 ### Nice-to-Have (P1)
+
+Design pass 2 includes all four of these, so they ship in v1 with the P0 work. "Who logged it" depends on an open question below.
 
 - **Time-of-day stamp on each row** — Each event row shows the local time it was logged (e.g. "6:42 AM"). Cheap, and the single most useful thing on the row for "has she been out recently?"
 - **Daily count summary** — "3 pees · 1 poop" at the top of the section, following the existing daily-total summary treatment (`bg-goofy-teal/10 rounded-2xl`).
@@ -119,7 +124,7 @@ It is also, unavoidably, a gross feature. Some households will want it; many won
 
 ### This is not a potty table
 
-`daily_logs` is **one row per pet per day** holding aggregate counters (`kibble_checked: int`, `supplements_status: jsonb` as id→count). It has no per-event timestamps and no per-event attributes. Potty tracking needs individually timestamped events, each carrying its own size, duration, and consistency, and each individually deletable and correctable. Forcing this into `daily_logs.jsonb` would produce a growing unbounded blob rewritten on every tap, with lost-update races between two household members logging at the same time.
+`daily_logs` is **one row per pet per day** holding aggregate counters (`kibble_checked: int`, `supplements_status: jsonb` as id→count). It has no per-event timestamps and no per-event attributes. Potty tracking needs individually timestamped events, each carrying its own size and consistency, and each individually deletable and correctable. Forcing this into `daily_logs.jsonb` would produce a growing unbounded blob rewritten on every tap, with lost-update races between two household members logging at the same time.
 
 But the answer is **not** a `potty_events` table. Potty tracking is the first of at least three event-shaped features on the roadmap (reactivity log, per-meal feeding, health incidents), and a table per feature is how this app ends up with fifteen tables and no coherent model.
 
@@ -130,7 +135,7 @@ But the answer is **not** a `potty_events` table. Potty tracking is the first of
 ```ts
 type PottyPeeEvent = {
   event_type: 'potty_pee'
-  data: { size: 1 | 2 | 3 | 4 | 5; duration_secs?: number }
+  data: { size: 1 | 2 | 3 | 4 | 5 }
 }
 
 type PottyPoopEvent = {
@@ -139,7 +144,9 @@ type PottyPoopEvent = {
 }
 ```
 
-Both default `size` to `3`. `consistency` defaults to `3` ("just right"). `duration_secs` is nullable and never required to log.
+Both default `size` to `3`. `consistency` defaults to `3` ("just right").
+
+**Pee has no duration.** `size` is the only amount recorded for a pee. Duration was dropped on 2026-10-01 in design pass 2 (Potty Tracking v2), which treats size as the only measure of amount. This closes both duration questions that were open here. No load or volume field replaces it. If duration ever returns, it comes back as an optional field added to `potty_pee`, per the payload rules in `specs/data-model.md`.
 
 Register both in the event type table in `specs/data-model.md`.
 
@@ -186,29 +193,31 @@ Both primary controls are net-new. The design system documents no slider of any 
 1. A **graduated 5-point scale** (droplets and 💩), where marks are ordinal rather than countable
 2. A **centered 5-point slider** with semantic endpoints
 
-These need design before implementation, and whatever they become should be documented back into `docs/design-system/README.md` as reusable components — the reactivity log on the roadmap ("threshold level") will want the same scale primitive.
+Design pass 2 specifies both (see the handoff), and they should be documented back into `docs/design-system/README.md` as reusable components — the reactivity log on the roadmap ("threshold level") will want the same scale primitive.
 
 ### Accessibility
 
 - Every scale mark and slider needs an `aria-label` and keyboard operability; the existing circle trackers already set this precedent.
-- Touch targets: minimum `44px` per the existing `KibbleTracker` standard. Five marks in a row at 44px each is 220px minimum — tight inside a `max-w-md` card with padding. **This is a real layout constraint for design to solve**, not an afterthought.
+- Touch targets: minimum `44px` per the existing `KibbleTracker` standard. Five marks in a row at 44px each is 220px minimum — tight inside a `max-w-md` card with padding. Design pass 2 solves this with full-width flex marks, about 55px each at 375px.
 - Do not encode consistency by color alone.
 
 ---
 
-## Design Brief
+## Design (resolved 2026-10-01)
 
-Five things need design before this is buildable:
+Design pass 2 ("Potty Tracking v2") answers the brief. The full build spec, with measurements, tokens, states, motion and accessibility, is [`specs/potty-tracking-handoff.md`](./potty-tracking-handoff.md). Build from the handoff, not from the board.
 
-1. **The pee droplet scale** — 5 ordinal marks, small → large. How does a mark read as "unfilled"? Does the whole row fill up to the selected point (like a rating) or does one mark highlight?
-2. **The poop size scale** — same structure, plus the dog-relative framing. Where does the "relative to your dog" acknowledgment live — persistent label, first-use tooltip, or in the mark labels themselves?
-3. **The consistency slider** — centered default, semantic endpoints, no medical vocabulary. This is the hardest one: it must be legible at a glance, funny without being crude, and operable one-handed outdoors.
-4. **The section + empty state + settings toggle** — how the Potty section sits alongside Kibble / Supplements / Meds without dominating the dashboard.
-5. **A failed, not-saved event row** — the visual treatment of an event that stayed on screen after the insert failed, and how retry is offered. Behavior is specified in `specs/pet-events-foundation-test-plan.md` (`saveState: 'failed'`, `retryEvent`). The visual treatment is not specified here.
+| Brief item | Decision |
+|---|---|
+| 1. Pee droplet scale | Fill bar. A yellow bar grows from the left to the tapped droplet; droplets grow 12→28px. |
+| 2. Poop size scale | Single highlight. Dog-relative framing lives in the readout: "**Big** for a Toy pup". |
+| 3. Consistency slider | Detent slider called "Texture". Teal fill grows out from the center stop. Words: Soupy, Squishy, Just right, Crumbly, Pebbly. |
+| 4. Section, empty state, Settings toggle | Section below Meds. Add buttons always visible. Empty copy: "No potty breaks yet today. Sniff around! 🐾". Settings card between Medications and Invite Partner, with size pills under the switch. |
+| 5. Failed, not-saved row | Not on the board. The handoff carries a proposal pending sign-off. |
 
-**Tone guardrail:** playful, not crude. The bar is that someone would be comfortable using this in a dog park with a stranger glancing at their screen. Goofy is the brand; juvenile is not.
+Five marks at 375px are about 55px wide and 44px tall, so the touch-target constraint is met.
 
-**Constraints for design:** `max-w-md` container, `44px` minimum touch targets, existing palette (`#F5D6C0` peach bg, `#FCF6EC` cream, `#00A896` teal, `#FFD166` yellow, `#3D3D3D` foreground), Framer Motion springs at `stiffness: 400, damping: 17`, one-handed operation.
+**Tone guardrail** (unchanged): playful, not crude. The bar is that someone would be comfortable using this in a dog park with a stranger glancing at their screen.
 
 ---
 
@@ -228,17 +237,16 @@ Five things need design before this is buildable:
 
 ## Open Questions
 
+Resolved 2026-10-01: pee duration is dropped and `size` is the only pee amount. See Technical Notes.
+
+Also resolved by design pass 2: the five marks fit at 44px; the slider's end labels are Soupy · Just right · Pebbly; the UI name is "Potty"; the section always shows its add buttons; size class is a five-pill class picker, not a weight; disabling the toggle retains events ("nothing gets deleted").
+
 | Question | Owner | Blocking? |
 |---|---|---|
-| **How is pee duration captured?** Proposal: press-and-hold the add action to time it, release to log — with the resulting droplet size pre-suggested from the duration and adjustable. A plain tap logs without duration. Needs validation: is a stopwatch realistic mid-walk, or is size alone sufficient? | Design | Yes |
-| **Are size and duration redundant?** A longer pee is a bigger pee. If duration is the better signal, the droplet scale may be derived rather than user-set. Resolving this could remove a whole control. | Product / Design | Yes |
-| How does the 5-mark scale fit inside `max-w-md` at 44px touch targets? | Design | Yes |
-| What are the consistency slider's endpoint labels? Needs to avoid both clinical ("diarrhea") and crude. | Design / UX copy | Yes |
-| Is the feature called "Potty" in the UI? README roadmap says "Potty tracking"; data model uses `potty_*`. Alternatives: "Business", "Outside", "Bathroom". | UX copy | No |
-| Does the dashboard section collapse when empty, or always show the add actions? | Design | No |
-| Should size class be captured as a 5-point class, or as a weight in lbs/kg mapped to classes? Weight is more precise but adds a unit choice. | Product | No |
-| Does the **edit-time UI** ship in v1? Schema supports it from day one regardless; the question is only whether the control is built now. Backfilling is common enough that v1 is defensible. | Product | No |
-| Should disabling the toggle offer to delete existing events, or silently retain them? Spec currently says retain. | Product | No |
+| **Failed-row look.** Approve the handoff's proposal (red-50 row, "Didn't save · Retry", not editable until saved), or send it back to design? | Product | Yes, for PR 4 |
+| **Who logged it.** Profiles have no name. Show "You" / "Partner" (no schema change; `addEvent` sets `logged_by`), add `profiles.display_name`, or drop the name? See the handoff. | Product | Yes, for PR 4 |
+| **Size not yet set.** Approve the proposed Settings copy "Pick {pet name}'s size to start logging." | UX copy | No |
+| Does the **edit-time UI** ship in v1? Schema supports it from day one regardless; the question is only whether the control is built now. Backfilling is common enough that v1 is defensible. Design pass 2 does not include it. | Product | No |
 
 ---
 
@@ -248,8 +256,8 @@ Five things need design before this is buildable:
 1. **Migration** — `settings.potty_tracking_enabled`, `pets.size_class`
 2. **Context** — register the two potty event types; gate the `events` fetch on the flag
 3. **Settings** — toggle + size class capture (shippable and testable on its own; the dashboard section simply doesn't render yet)
-4. **Design** — the five items in the Design Brief
+4. **Design** — done 2026-10-01; see the handoff
 5. **Dashboard section** — event list + add actions
-6. **Scale + slider components** — built from design output, documented back into the design system
+6. **Scale + slider components** — built from the handoff, documented back into the design system
 
-Steps 1–3 do not depend on design and can start immediately. Step 4 is the critical path for 5–6.
+Steps 5–6 are unblocked except for the two Product questions marked blocking for PR 4.
