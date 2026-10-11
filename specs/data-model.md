@@ -42,7 +42,7 @@ create table pet_events (
   occurred_at  timestamptz not null default now(),
   local_date   date not null,
   data         jsonb not null default '{}'::jsonb,
-  logged_by    uuid references profiles(id),
+  logged_by    uuid not null default auth.uid() references profiles(id),
   created_at   timestamptz not null default now(),
   updated_at   timestamptz
 );
@@ -80,6 +80,7 @@ create index pet_events_pet_type_time_idx on pet_events (pet_id, event_type, occ
 
 - **`data` is never queried for correctness-critical logic.** Anything the app must filter, sort, or index on belongs in a real column. That is why `pet_id`, `event_type`, `occurred_at`, and `local_date` are columns and everything else is not.
 - **Inserts are client-id'd.** Optimistic UI needs a key before the server responds, so generate the `uuid` client-side and pass it in the insert rather than relying on the column default.
+- **`logged_by` is required and filled by the database.** `not null default auth.uid()`. Clients never send it, so it cannot be forgotten or spoofed, and every event is attributed to the person who tapped. Resolved 2026-10-10. Relaxing to nullable later, for a system-written event, is a one-line migration; adding `not null` after rows exist is not. Deleting a profile that still has events is blocked by the foreign key. Nothing in the app deletes profiles yet; account deletion will need a rule. No UI shows `logged_by` in v1.
 - **Events are the record; they are not config.** Nothing derives future behavior from an event row. Config lives in `settings` or `pet_schedules`.
 
 ---
@@ -274,6 +275,5 @@ Steps 1–3 are feature-agnostic infrastructure and are worth doing cleanly, bec
 |---|---|---|
 | Should `event_type` be a Postgres enum rather than `text`? Enum gives DB-level validation but every new type becomes a migration — which defeats much of the point. Leaning `text` + a TS union + the registry table above. | Engineering | No |
 | Does `pet_events` need soft delete (`deleted_at`) rather than hard delete, for eventual undo or audit? | Engineering | No |
-| Should `logged_by` be nullable for events created by a future automation, or always attributed to a person? | Engineering | No |
 | When per-meal tracking is built, does `daily_logs` migrate or run in parallel during a transition period? | Engineering | No — revisit then |
 | Do schedules need arbitrary recurrence (rrule) or is `interval_days` sufficient? Everything on the roadmap is interval-based. | Product | No |

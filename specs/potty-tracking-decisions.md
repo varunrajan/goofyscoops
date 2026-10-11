@@ -94,3 +94,18 @@ Two process notes:
 | Food transitions | span — no model yet, by design |
 
 The cost of this spec phase was mostly not potty tracking. It was the foundation those other features inherit.
+
+---
+
+## Amendments
+
+The sections above record the spec phase as it stood on 2026-09-30. Later changes are listed here, not edited into the history.
+
+| Date | Change | Why |
+|---|---|---|
+| 2026-10-01 | Pee duration dropped. `potty_pee` is `{ size }` only | Design pass 2 treats size as the only measure of amount |
+| 2026-10-01 | Design resolved; build spec is `specs/potty-tracking-handoff.md` | Replaces the five open design questions |
+| 2026-10-10 | **Test approach reversed: no automated tests for now.** Supersedes "Automated, Vitest" above | Setup cost versus shipping. The test plan's cases remain the behavioral spec. A manual two-account check replaces the RLS tests. The midnight-boundary bug the original decision was guarding against is now checked by hand |
+| 2026-10-10 | `logged_by` is `not null default auth.uid()`; not displayed in v1 | Cheap now, impossible to backfill later. No profile names exist to show |
+| 2026-10-10 | Rows snap in v1; control animations stay; animation pass deferred | The board animates the controls but not the rows |
+| 2026-10-10 | PR 1 (schema baseline) folded into the `pet_events` foundation PR | Baseline needs a credentialed CLI run and Docker, and its main purpose was local testing |

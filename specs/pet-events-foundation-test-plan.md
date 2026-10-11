@@ -10,9 +10,16 @@ Resolved this pass: F2, F3, F4, F6, F10, F14. CI-1 rewritten. F15 added.
 
 This amendment: the viewDate read merges, so a `'failed'` or `'pending'` row the server does not return is kept (RF-1 through RF-4, part of F14). `SELECT`, `UPDATE`, and `DELETE` on `pet_events` are `TO authenticated`, a second deliberate divergence from the live tables.
 
-Still open: F1, F5, F7, F8, F9, F11, F13, F15, the environment for the database-layer tests, and the multi-timezone decision (accepted and deferred, not to be re-raised).
+Still open: F1, F8, F13, F15, and the multi-timezone decision (accepted and deferred, not to be re-raised). F5, F7, F9 and F11 were resolved on 2026-10-10; see the amendment below.
 
 F12 remains a standing directive, not an open question.
+
+## Amendment 2026-10-10
+
+- **No automated tests at this stage.** Vitest and local database tests are not being built for now. The Layers table below describes what a test suite would use, and is not in force. **The cases in this plan are still the behavioral spec.** Implement to them, and check them by hand where a test would have.
+- **Manual check replaces the RLS tests.** Household isolation cannot be verified from one account. After the migration is applied, sign in as two test users in different households and confirm each sees, edits and deletes only its own household's events. This is a required step before merging the foundation.
+- **Resolved with defaults:** F5 (drop and warn), F7 (patch allowlist), F9 (newest first), F11 (`logged_by` required, database-filled). See each finding.
+- The open item "where the database-layer tests run" is closed: nowhere, for now.
 
 **Two deliberate divergences from the live tables.** See [F3](#f3-existing-rls-sql-retrieved). `settings` and `daily_logs` have no `DELETE` policy, and their `SELECT` and `UPDATE` policies are `TO public`. `pet_events` has a `DELETE` policy, and `SELECT`, `UPDATE`, and `DELETE` are `TO authenticated`. `INSERT` stays `TO authenticated`, matching live. The `DELETE` policy is required because `specs/data-model.md` says household members can delete. The role change is required because a new table can fail closed at the role instead of only inside the household expression.
 
@@ -336,11 +343,11 @@ Step 0 has no registered event types ([F4](#f4-step-0-ships-an-empty-union)), so
 
 Call `addEvent` with a payload the read parser would reject. The call does not throw. `addEvent` returns `void`.
 
-What the function does instead of throwing (no-op, drop, persist anyway, or mark `'failed'`) is [F5](#f5-validation-failure-mode-is-unspecified). RD-2 asserts only the absence of a crash. F4 no longer blocks this. Step 0 has no valid registered payload to round-trip.
+What the function does instead of throwing is decided by [F5](#f5-validation-failure-mode-is-unspecified): the bad row is dropped and a warning is logged. RD-2 asserts the absence of a crash. F4 no longer blocks this. Step 0 has no valid registered payload to round-trip.
 
-**RD-3. Do not assert the fate of the bad row.**
+**RD-3. The bad row is dropped and warned about.**
 
-Blocked by F5. Presence in `events`, omission, or an error field are all unspecified. RD-1 and RD-2 are satisfied as long as the client does not crash.
+Resolved by F5 on 2026-10-10. A row that fails validation is absent from `events` and `console.warn` is called. It does not become `'failed'`.
 
 ---
 
@@ -350,7 +357,7 @@ These are in scope for step 0 and do not depend on an open finding, except where
 
 **SC-1. Columns match the data-model `CREATE TABLE`.**
 
-`id uuid primary key default gen_random_uuid()`, `pet_id uuid not null references pets(id) on delete cascade`, `event_type text not null`, `occurred_at timestamptz not null default now()`, `local_date date not null`, `data jsonb not null default '{}'::jsonb`, `logged_by uuid references profiles(id)` (nullable), `created_at timestamptz not null default now()`, `updated_at timestamptz` (nullable, no default).
+`id uuid primary key default gen_random_uuid()`, `pet_id uuid not null references pets(id) on delete cascade`, `event_type text not null`, `occurred_at timestamptz not null default now()`, `local_date date not null`, `data jsonb not null default '{}'::jsonb`, `logged_by uuid not null default auth.uid() references profiles(id)`, `created_at timestamptz not null default now()`, `updated_at timestamptz` (nullable, no default).
 
 `event_type` is `text`, not a Postgres enum. That matches the SQL block. The open question about an enum is already leaned away from, and is non-blocking.
 
@@ -500,11 +507,9 @@ No step 0 case round-trips a potty payload or any other registered payload. RD-1
 
 ### F5. Validation failure mode is unspecified
 
-Open.
+Resolved 2026-10-10 (default, change if you disagree). A row whose `data` fails validation, or whose `event_type` is not registered, is dropped from `events` and reported with `console.warn`. It does not crash the client and is not kept as an unknown variant. This applies to reads and to writes. It is separate from F14: `'failed'` is for an insert request that failed, not a payload the parser rejects.
 
-The spec requires parse-and-validate on read and on write, and a bad payload must not crash the client. It does not say whether a bad row is dropped, kept as an unknown variant, or reported.
-
-RD-1 and RD-2 stop at "does not throw." Any assertion about the resulting `events` contents is blocked. F14's `'failed'` state is for a failed insert request, not for a payload the parser rejects. This finding does not decide that those are the same.
+RD-1 and RD-2 may now assert that the row is absent from `events`.
 
 ### F6. Step 0 always fetches
 
@@ -516,13 +521,9 @@ The read runs on mount, when `viewDate` changes, and on `visibilitychange`. LD-7
 
 ### F7. `updateEvent` patch allowlist
 
-Open.
+Resolved 2026-10-10 (default, change if you disagree). `patch` may contain only `occurred_at` and `data`. Any other key is a type error and is ignored at runtime. If `occurred_at` is in the patch, the persisted `local_date` equals the en-CA date of that instant, and a caller-supplied `local_date` never wins.
 
-The signature is `updateEvent(id, patch)`. The spec says the helper recomputes `local_date` when `occurred_at` changes. It does not say whether `patch` may include `event_type`, `pet_id`, `local_date`, `logged_by`, `created_at`, or `id`.
-
-Unblocked: if `occurred_at` is in the patch, the persisted `local_date` equals the en-CA date of that instant. A caller-supplied `local_date`, if the type even allows it, does not win.
-
-Blocked: assertions that the helper rejects `event_type` or `pet_id` changes. RLS-13 is the database rejecting a `pet_id` move across households. It is not a TypeScript allowlist.
+RLS-13 remains the database rejecting a `pet_id` move across households. It is not the TypeScript allowlist.
 
 ### F8. Nothing writes `updated_at`
 
@@ -532,9 +533,7 @@ The column is nullable, with no default and no trigger in the schema block. Do n
 
 ### F9. Sort direction of `events`
 
-Open.
-
-The prose says the list sorts by `occurred_at` for correct chronology. The index is `occurred_at desc`. Ascending versus descending for the context array is not stated. No order assertion.
+Resolved 2026-10-10. `events` is held newest first, by `occurred_at` descending, which matches the index and the design. The potty UI also sorts explicitly and does not rely on array order.
 
 ### F10. Vitest is the runner
 
@@ -546,9 +545,7 @@ Open item, not decided here: where the database-layer tests run. Local Supabase,
 
 ### F11. `logged_by` on insert
 
-Open.
-
-The column is a nullable FK to `profiles`. An open, non-blocking question asks whether automation may leave it null. `addEvent(type, data)` has no actor argument. Do not require the insert to set `logged_by`, and do not require it to equal `auth.uid()`.
+Resolved 2026-10-10. `logged_by` is `not null default auth.uid()`. The client never sends it and `addEvent(type, data)` stays without an actor argument. The database attributes every event to the signed-in user. No UI displays it in v1. See `specs/data-model.md`.
 
 ### F12. Standing directive: no database trigger
 
@@ -604,6 +601,6 @@ The likely eventual fix is a configurable day-start offset (for example 4am) app
 - Settings toggle, size class, dashboard section, scales, slider, and the visual treatment of a failed event row.
 - Copy that acknowledges a cross-midnight move.
 - `pet_schedules`, `next_due_at`, `completeSchedule`.
-- Sorting, `updated_at` maintenance, soft delete, and `logged_by` attribution, until the findings above are resolved.
+- `updated_at` maintenance and soft delete, until F8 and the soft-delete question are resolved.
 - Multi-timezone households. `local_date` is written from the logging client's timezone, so a household split across timezones can disagree about which day an event belongs to. Accepted and deliberately not handled: two people in different timezones sharing one dog is rare, and navigating to the adjacent day is an adequate workaround. Do not re-raise this as a finding.
 - Kibble, supplement, and med failure handling, and any offline write queue.
