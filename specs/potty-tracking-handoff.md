@@ -215,7 +215,11 @@ Tap only. The slider has no drag in the design. Tapping a zone is enough for one
 
 ## Motion
 
-The board approximates springs with `cubic-bezier(.34, 1.8, .64, 1)` over 350ms. Build them with Framer Motion's standard spring, `{ type: "spring", stiffness: 400, damping: 17 }`, per the design system.
+**The board is the source of truth for feel.** Open [`docs/design/potty-tracking-v2.html`](../docs/design/potty-tracking-v2.html) in a browser. Every frame is live: tap the marks, the slider stops, the add buttons and the Settings switch, and match what you see. Where this section and the board disagree, the board wins.
+
+The board approximates springs with `cubic-bezier(.34, 1.8, .64, 1)` over 350ms. Build them with Framer Motion's standard spring, `{ type: "spring", stiffness: 400, damping: 17 }`, per the design system. The spring values are a starting point. Tune them until the controls feel like the board, and put the final values in one shared constant rather than repeating them per component.
+
+### In v1: control animations (all on the board)
 
 | Element | Trigger | Animation |
 |---|---|---|
@@ -228,7 +232,29 @@ The board approximates springs with `cubic-bezier(.34, 1.8, .64, 1)` over 350ms.
 | Switch knob | Toggle | Spring; track color 200ms |
 | Size pill | Select | 150ms color transitions |
 
-Respect `prefers-reduced-motion`: use Framer Motion's `MotionConfig reducedMotion="user"`.
+### In v1: snap, no animation
+
+The board does not animate these, so v1 does not either. They change state instantly.
+
+- A new row appearing at the top of the list.
+- A row opening or collapsing.
+- A row being deleted.
+- The empty state appearing or disappearing.
+- The Potty section appearing when the feature is switched on.
+
+Do not add height transitions, `layout` animations or `AnimatePresence` for these. Keeping them as plain state changes also keeps the list simple while the failed-row behavior is built.
+
+### Deferred: animation pass
+
+Revisit after the feature is in use. Candidates, in order of likely value: new row slides in at the top, row open and collapse with a short height transition, deleted row collapses out. This needs its own design decision, because the board gives no reference for any of them. Not part of PRs 3 or 4.
+
+### Reduced motion
+
+Respect `prefers-reduced-motion`: use Framer Motion's `MotionConfig reducedMotion="user"`. This turns off the spring movement; the color transitions can stay.
+
+### How to check it
+
+Open the board and the running app side by side. For each row of the v1 table, the app's control must feel the same as the board's. List the interactions checked in the PR description.
 
 ## Accessibility
 
