@@ -1,13 +1,89 @@
 "use client";
 
-import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from "react";
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { Pet, PetSettings, DailyLog, SupplementConfig, MedConfig } from "@/types/supabase";
+import type { Pet, PetSettings, DailyLog, SupplementConfig, MedConfig, PetEvent, PetEventPatch, PetEventPayloads, PetEventSaveState } from "@/types/supabase";
+import {
+  isValidPetEventData,
+  mergePetEvents,
+  parsePetEvent,
+  sortPetEvents,
+  visiblePetEvents,
+} from "@/types/supabase";
+import { localDate } from "@/lib/local-date";
 import { normalizeScoopSize } from "@/lib/scoop";
 
 function today(): string {
-  return new Date().toLocaleDateString("en-CA");
+  return localDate();
+}
+
+const PET_EVENT_COLUMNS =
+  "id, pet_id, event_type, occurred_at, local_date, data, logged_by, created_at, updated_at";
+
+type PetEventInsert = {
+  id: string;
+  pet_id: string;
+  event_type: string;
+  occurred_at: string;
+  local_date: string;
+  data: unknown;
+};
+
+type PetEventUpdate = {
+  occurred_at?: string;
+  local_date?: string;
+  data?: unknown;
+};
+
+function duplicateKey(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) return false;
+  return (error as { code?: unknown }).code === "23505";
+}
+
+async function insertPetEvent(row: PetEventInsert): Promise<{ ok: boolean; duplicate: boolean }> {
+  try {
+    const supabase = createClient();
+    const { error } = await supabase.from("pet_events").insert({
+      id: row.id,
+      pet_id: row.pet_id,
+      event_type: row.event_type,
+      occurred_at: row.occurred_at,
+      local_date: row.local_date,
+      data: row.data,
+    });
+    if (!error) return { ok: true, duplicate: false };
+    return { ok: false, duplicate: duplicateKey(error) };
+  } catch (error) {
+    return { ok: false, duplicate: duplicateKey(error) };
+  }
+}
+
+async function updatePetEvent(id: string, patch: PetEventUpdate): Promise<void> {
+  try {
+    const supabase = createClient();
+    await supabase.from("pet_events").update(patch).eq("id", id);
+  } catch {
+    // Fire-and-forget. Updates have no failed saveState.
+  }
+}
+
+async function deletePetEvent(id: string): Promise<void> {
+  try {
+    const supabase = createClient();
+    await supabase.from("pet_events").delete().eq("id", id);
+  } catch {
+    // Fire-and-forget. The row stays gone. Deletes have no failed saveState.
+  }
+}
+
+function withSaveState(rows: PetEvent[], id: string, saveState: PetEventSaveState): PetEvent[] {
+  const current = rows.find((event) => event.id === id);
+  if (!current || current.saveState === saveState) return rows;
+  // A read can mark the row saved before a lost insert response settles.
+  // Do not downgrade that row to failed.
+  if (saveState === "failed" && current.saveState === "saved") return rows;
+  return rows.map((event) => (event.id === id ? { ...event, saveState } : event));
 }
 
 const DEFAULT_SETTINGS: PetSettings = {
@@ -23,6 +99,7 @@ interface PetStoreContextValue {
   pet: Pet | null;
   settings: PetSettings;
   log: DailyLog | null;
+  events: PetEvent[];
   viewDate: string;
   setViewDate: React.Dispatch<React.SetStateAction<string>>;
   loading: boolean;
@@ -36,6 +113,10 @@ interface PetStoreContextValue {
   addMed: (med: MedConfig) => void;
   updateMed: (id: string, patch: Partial<Omit<MedConfig, "id">>) => void;
   removeMed: (id: string) => void;
+  addEvent: <K extends keyof PetEventPayloads>(type: K, data: PetEventPayloads[K]) => void;
+  updateEvent: (id: string, patch: PetEventPatch) => void;
+  removeEvent: (id: string) => void;
+  retryEvent: (id: string) => void;
 }
 
 const PetStoreContext = createContext<PetStoreContextValue | null>(null);
@@ -46,7 +127,9 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<PetSettings>(DEFAULT_SETTINGS);
   const [viewDate, setViewDate] = useState<string>(today());
   const [log, setLog] = useState<DailyLog | null>(null);
+  const [storedEvents, setEvents] = useState<PetEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const fetchGeneration = useRef(0);
 
   const buildEmptyLog = useCallback((petId: string): DailyLog => ({
     id: "",
@@ -58,6 +141,7 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
   }), [viewDate]);
 
   const fetchData = useCallback(async () => {
+    const generation = ++fetchGeneration.current;
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
@@ -121,6 +205,38 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
       });
     } else {
       setLog(null);
+    }
+
+    try {
+      const { data: eventData, error: eventsError } = await supabase
+        .from("pet_events")
+        .select(PET_EVENT_COLUMNS)
+        .eq("pet_id", petData.id)
+        .eq("local_date", viewDate)
+        .order("occurred_at", { ascending: false });
+
+      // A newer viewDate read supersedes this one. Merging a stale day
+      // would drop saved rows that belong to the day now on screen.
+      if (generation === fetchGeneration.current) {
+        if (eventsError) {
+          console.warn("pet_events read failed", eventsError);
+        } else {
+          const parsed: PetEvent[] = [];
+          for (const raw of eventData ?? []) {
+            const event = parsePetEvent(raw);
+            if (!event) {
+              console.warn("Dropping unregistered or invalid pet event", raw);
+              continue;
+            }
+            parsed.push(event);
+          }
+          setEvents((prev) => mergePetEvents(prev, parsed));
+        }
+      }
+    } catch (error) {
+      if (generation === fetchGeneration.current) {
+        console.warn("pet_events read failed", error);
+      }
     }
 
     setLoading(false);
@@ -325,10 +441,146 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, [persistSettings]);
 
+  // --- Pet events ---
+  // addEvent appends with setEvents, inserts outside that updater, then
+  // setEvents again when the insert settles. updateEvent and removeEvent
+  // are fire-and-forget and do not change saveState.
+
+  const events = useMemo(
+    () => visiblePetEvents(storedEvents, pet?.id ?? null, viewDate),
+    [storedEvents, pet?.id, viewDate],
+  );
+
+  const addEvent = useCallback(function addEvent<K extends keyof PetEventPayloads>(
+    type: K,
+    data: PetEventPayloads[K],
+  ): void {
+    if (!isValidPetEventData(String(type), data)) {
+      console.warn("Dropping pet event write: unregistered type or invalid data", type);
+      return;
+    }
+    if (!pet) {
+      console.warn("Dropping pet event write: no current pet");
+      return;
+    }
+
+    const instant = new Date();
+    const occurredAt = instant.toISOString();
+    const rowLocalDate = localDate(instant);
+    const id = crypto.randomUUID();
+    const row = {
+      id,
+      pet_id: pet.id,
+      event_type: type,
+      occurred_at: occurredAt,
+      local_date: rowLocalDate,
+      data,
+      logged_by: null,
+      created_at: occurredAt,
+      updated_at: null,
+      saveState: "pending" as const,
+    } as PetEvent;
+
+    setEvents((prev) => sortPetEvents([...prev, row]));
+
+    const payload: PetEventInsert = {
+      id,
+      pet_id: pet.id,
+      event_type: String(type),
+      occurred_at: occurredAt,
+      local_date: rowLocalDate,
+      data,
+    };
+
+    void insertPetEvent(payload).then((result) => {
+      setEvents((prev) => withSaveState(prev, id, result.ok ? "saved" : "failed"));
+    });
+  }, [pet]);
+
+  const updateEvent = useCallback((id: string, patch: PetEventPatch) => {
+    const current = storedEvents.find((event) => event.id === id);
+    if (!current) return;
+
+    const occurredAt = patch.occurred_at;
+    const nextData = patch.data;
+    let nextLocalDate = current.local_date;
+
+    if (occurredAt !== undefined) {
+      const instant = new Date(occurredAt);
+      if (Number.isNaN(instant.getTime())) {
+        console.warn("Dropping pet event update: invalid occurred_at", id);
+        return;
+      }
+      nextLocalDate = localDate(instant);
+    }
+
+    if (nextData !== undefined && !isValidPetEventData(String(current.event_type), nextData)) {
+      console.warn("Dropping pet event update: invalid data", id);
+      return;
+    }
+
+    if (occurredAt === undefined && nextData === undefined) return;
+
+    setEvents((prev) =>
+      sortPetEvents(
+        prev.map((event) => {
+          if (event.id !== id) return event;
+          if (occurredAt !== undefined && nextData !== undefined) {
+            return { ...event, occurred_at: occurredAt, local_date: nextLocalDate, data: nextData };
+          }
+          if (occurredAt !== undefined) {
+            return { ...event, occurred_at: occurredAt, local_date: nextLocalDate };
+          }
+          return { ...event, data: nextData as PetEvent["data"] };
+        }),
+      ),
+    );
+
+    let write: PetEventUpdate;
+    if (occurredAt !== undefined && nextData !== undefined) {
+      write = { occurred_at: occurredAt, local_date: nextLocalDate, data: nextData };
+    } else if (occurredAt !== undefined) {
+      write = { occurred_at: occurredAt, local_date: nextLocalDate };
+    } else {
+      write = { data: nextData };
+    }
+
+    void updatePetEvent(id, write);
+  }, [storedEvents]);
+
+  const removeEvent = useCallback((id: string) => {
+    setEvents((prev) => prev.filter((event) => event.id !== id));
+    void deletePetEvent(id);
+  }, []);
+
+  const retryEvent = useCallback((id: string) => {
+    const existing = storedEvents.find((event) => event.id === id && event.saveState === "failed");
+    if (!existing) return;
+
+    setEvents((prev) =>
+      prev.map((event) => (event.id === id ? { ...event, saveState: "pending" } : event)),
+    );
+
+    const payload: PetEventInsert = {
+      id: existing.id,
+      pet_id: existing.pet_id,
+      event_type: String(existing.event_type),
+      occurred_at: existing.occurred_at,
+      local_date: existing.local_date,
+      data: existing.data,
+    };
+
+    void insertPetEvent(payload).then((result) => {
+      const saveState: PetEventSaveState = result.ok || result.duplicate ? "saved" : "failed";
+      setEvents((prev) => withSaveState(prev, id, saveState));
+    });
+  }, [storedEvents]);
+
   const value = useMemo<PetStoreContextValue>(() => ({
     pet,
     settings,
     log,
+    events,
     viewDate,
     setViewDate,
     loading,
@@ -342,7 +594,11 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
     addMed,
     updateMed,
     removeMed,
-  }), [pet, settings, log, viewDate, setViewDate, loading, toggleKibble, toggleSupplement, toggleMed, updateSettings, addSupplement, updateSupplement, removeSupplement, addMed, updateMed, removeMed]);
+    addEvent,
+    updateEvent,
+    removeEvent,
+    retryEvent,
+  }), [pet, settings, log, events, viewDate, setViewDate, loading, toggleKibble, toggleSupplement, toggleMed, updateSettings, addSupplement, updateSupplement, removeSupplement, addMed, updateMed, removeMed, addEvent, updateEvent, removeEvent, retryEvent]);
 
   return (
     <PetStoreContext.Provider value={value}>
