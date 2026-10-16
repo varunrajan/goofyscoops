@@ -9,9 +9,13 @@ export interface Pet {
   id: UUID;
   name: string;
   household_id: UUID;
+  /** Null until the household opts into potty tracking and picks a size. */
+  size_class: PetSizeClass | null;
 }
 
 import type { ScoopSize } from "@/lib/scoop";
+import type { PetSizeClass, PottyScaleValue } from "@/lib/potty";
+import { isPottyScaleValue } from "@/lib/potty";
 
 export type { ScoopSize };
 
@@ -34,6 +38,7 @@ export interface PetSettings {
   daily_scoops: number;
   supplements_config: SupplementConfig[];
   meds_config: MedConfig[];
+  potty_tracking_enabled: boolean;
 }
 
 export interface DailyLog {
@@ -48,12 +53,15 @@ export interface DailyLog {
 export type PetEventSaveState = "pending" | "saved" | "failed";
 
 /**
- * Payload registry keyed by `event_type`. No types are registered yet.
- * A later feature adds one member here and one validator in `petEventValidators`.
- * Parsing, inserts, and the store read both from there.
+ * Payload registry keyed by `event_type`. A feature adds one member here and
+ * one validator in `petEventValidators`. Parsing, inserts, and the store read
+ * both from there. Payloads only ever gain optional fields; see
+ * specs/data-model.md.
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- extension point; members are added with their validators
-export interface PetEventPayloads {}
+export interface PetEventPayloads {
+  potty_pee: { size: PottyScaleValue };
+  potty_poop: { size: PottyScaleValue; consistency: PottyScaleValue };
+}
 
 interface PetEventCommon {
   id: UUID;
@@ -89,7 +97,14 @@ type PetEventValidatorMap = {
   [K in keyof PetEventPayloads]: (data: unknown) => data is PetEventPayloads[K];
 };
 
-const petEventValidators: PetEventValidatorMap = {};
+// Validators check the required fields only. Unknown keys are allowed so a
+// later optional field does not invalidate rows written before it existed.
+const petEventValidators: PetEventValidatorMap = {
+  potty_pee: (data): data is PetEventPayloads["potty_pee"] =>
+    isRecord(data) && isPottyScaleValue(data.size),
+  potty_poop: (data): data is PetEventPayloads["potty_poop"] =>
+    isRecord(data) && isPottyScaleValue(data.size) && isPottyScaleValue(data.consistency),
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

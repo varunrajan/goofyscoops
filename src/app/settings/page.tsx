@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Plus, Trash2, SquarePen, Check, X, Link as LinkIcon, Copy, CheckCheck } from "lucide-react";
 import { usePetStore } from "@/context/PetStore";
+import { PottySettings } from "@/components/PottySettings";
 import { createClient } from "@/lib/supabase/client";
 import type { SupplementConfig, MedConfig } from "@/types/supabase";
 import {
@@ -420,6 +421,9 @@ export default function SettingsPage() {
           </button>
         </div>
       </section>
+
+      {/* Potty Tracking */}
+      <PottySettings />
 
       {/* Invite Partner */}
       <section className="bg-white rounded-3xl p-6 shadow-sm">

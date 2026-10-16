@@ -13,6 +13,7 @@ import {
 } from "@/types/supabase";
 import { localDate } from "@/lib/local-date";
 import { normalizeScoopSize } from "@/lib/scoop";
+import { isPetSizeClass, type PetSizeClass } from "@/lib/potty";
 
 function today(): string {
   return localDate();
@@ -93,6 +94,7 @@ const DEFAULT_SETTINGS: PetSettings = {
   daily_scoops: 4,
   supplements_config: [],
   meds_config: [],
+  potty_tracking_enabled: false,
 };
 
 interface PetStoreContextValue {
@@ -113,6 +115,7 @@ interface PetStoreContextValue {
   addMed: (med: MedConfig) => void;
   updateMed: (id: string, patch: Partial<Omit<MedConfig, "id">>) => void;
   removeMed: (id: string) => void;
+  updatePetSize: (sizeClass: PetSizeClass) => void;
   addEvent: <K extends keyof PetEventPayloads>(type: K, data: PetEventPayloads[K]) => void;
   updateEvent: (id: string, patch: PetEventPatch) => void;
   removeEvent: (id: string) => void;
@@ -130,6 +133,10 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
   const [storedEvents, setEvents] = useState<PetEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const fetchGeneration = useRef(0);
+  // False until a settings read returns the potty_tracking_enabled column.
+  // Before the migration is applied the column is absent, and writing it
+  // would make every settings save fail, so persistSettings leaves it out.
+  const settingsHasPottyColumn = useRef(false);
 
   const buildEmptyLog = useCallback((petId: string): DailyLog => ({
     id: "",
@@ -139,6 +146,44 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
     supplements_status: {},
     meds_status: {},
   }), [viewDate]);
+
+  // The pet_events read for one (pet, date). Shared by fetchData and the
+  // potty toggle. `generation` must come from a fresh ++fetchGeneration.current
+  // so a stale response never overwrites a newer one.
+  const fetchEvents = useCallback(async (petId: string, date: string, generation: number) => {
+    const supabase = createClient();
+    try {
+      const { data: eventData, error: eventsError } = await supabase
+        .from("pet_events")
+        .select(PET_EVENT_COLUMNS)
+        .eq("pet_id", petId)
+        .eq("local_date", date)
+        .order("occurred_at", { ascending: false });
+
+      // A newer read supersedes this one. Merging a stale day
+      // would drop saved rows that belong to the day now on screen.
+      if (generation === fetchGeneration.current) {
+        if (eventsError) {
+          console.warn("pet_events read failed", eventsError);
+        } else {
+          const parsed: PetEvent[] = [];
+          for (const raw of eventData ?? []) {
+            const event = parsePetEvent(raw);
+            if (!event) {
+              console.warn("Dropping unregistered or invalid pet event", raw);
+              continue;
+            }
+            parsed.push(event);
+          }
+          setEvents((prev) => mergePetEvents(prev, parsed));
+        }
+      }
+    } catch (error) {
+      if (generation === fetchGeneration.current) {
+        console.warn("pet_events read failed", error);
+      }
+    }
+  }, []);
 
   const fetchData = useCallback(async () => {
     const generation = ++fetchGeneration.current;
@@ -160,7 +205,13 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    setPet({ id: petData.id, name: petData.name, household_id: petData.household_id });
+    setPet({
+      id: petData.id,
+      name: petData.name,
+      household_id: petData.household_id,
+      // Absent column (migration not applied) or a bad value both become null.
+      size_class: isPetSizeClass(petData.size_class) ? petData.size_class : null,
+    });
 
     const { data: settingsData } = await supabase
       .from("settings")
@@ -168,8 +219,14 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
       .eq("pet_id", petData.id)
       .single();
 
+    // Read from the row just loaded, not from state, so the gate below
+    // cannot see a stale flag.
+    let pottyEnabled = false;
+
     if (settingsData) {
       const scoopSize = normalizeScoopSize(settingsData.scoop_size);
+      settingsHasPottyColumn.current = typeof settingsData.potty_tracking_enabled === "boolean";
+      pottyEnabled = settingsData.potty_tracking_enabled === true;
       setSettings({
         pet_id: settingsData.pet_id,
         meal_type: settingsData.meal_type,
@@ -177,6 +234,7 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
         daily_scoops: settingsData.daily_scoops,
         supplements_config: settingsData.supplements_config as SupplementConfig[],
         meds_config: settingsData.meds_config as MedConfig[],
+        potty_tracking_enabled: pottyEnabled,
       });
 
       if (scoopSize !== settingsData.scoop_size) {
@@ -207,40 +265,14 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
       setLog(null);
     }
 
-    try {
-      const { data: eventData, error: eventsError } = await supabase
-        .from("pet_events")
-        .select(PET_EVENT_COLUMNS)
-        .eq("pet_id", petData.id)
-        .eq("local_date", viewDate)
-        .order("occurred_at", { ascending: false });
-
-      // A newer viewDate read supersedes this one. Merging a stale day
-      // would drop saved rows that belong to the day now on screen.
-      if (generation === fetchGeneration.current) {
-        if (eventsError) {
-          console.warn("pet_events read failed", eventsError);
-        } else {
-          const parsed: PetEvent[] = [];
-          for (const raw of eventData ?? []) {
-            const event = parsePetEvent(raw);
-            if (!event) {
-              console.warn("Dropping unregistered or invalid pet event", raw);
-              continue;
-            }
-            parsed.push(event);
-          }
-          setEvents((prev) => mergePetEvents(prev, parsed));
-        }
-      }
-    } catch (error) {
-      if (generation === fetchGeneration.current) {
-        console.warn("pet_events read failed", error);
-      }
+    // F6: households that never enable potty tracking pay no query cost.
+    // When off, `events` is left as is.
+    if (pottyEnabled) {
+      await fetchEvents(petData.id, viewDate, generation);
     }
 
     setLoading(false);
-  }, [viewDate]);
+  }, [viewDate, fetchEvents]);
 
   useEffect(() => {
     fetchData();
@@ -267,6 +299,9 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
         daily_scoops: next.daily_scoops,
         supplements_config: next.supplements_config,
         meds_config: next.meds_config,
+        ...(settingsHasPottyColumn.current
+          ? { potty_tracking_enabled: next.potty_tracking_enabled }
+          : {}),
       })
       .eq("pet_id", next.pet_id);
   }, []);
@@ -370,12 +405,24 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
   }, [pet?.id, settings.meds_config, settings.pet_id, viewDate, buildEmptyLog, persistLog]);
 
   const updateSettings = useCallback((patch: Partial<PetSettings>) => {
+    // Decided outside the updater so StrictMode's double invoke cannot
+    // issue two reads.
+    const turningPottyOn =
+      patch.potty_tracking_enabled === true && !settings.potty_tracking_enabled;
+
     setSettings((prev) => {
       const next = { ...prev, ...patch };
       persistSettings(next);
       return next;
     });
-  }, [persistSettings]);
+
+    // fetchData skipped the events read while the flag was off. Read now
+    // rather than waiting for the next visibilitychange. A fresh generation
+    // makes any in-flight read stale, and any later read makes this one stale.
+    if (turningPottyOn && pet) {
+      void fetchEvents(pet.id, viewDate, ++fetchGeneration.current);
+    }
+  }, [persistSettings, settings.potty_tracking_enabled, pet, viewDate, fetchEvents]);
 
   const addSupplement = useCallback((supplement: SupplementConfig) => {
     setSettings((prev) => {
@@ -440,6 +487,48 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
       return next;
     });
   }, [persistSettings]);
+
+  // --- Pet ---
+
+  const updatePetSize = useCallback((sizeClass: PetSizeClass) => {
+    if (!pet) {
+      console.warn("Dropping pet size update: no current pet");
+      return;
+    }
+    const petId = pet.id;
+    const previous = pet.size_class;
+
+    setPet((prev) => (prev && prev.id === petId ? { ...prev, size_class: sizeClass } : prev));
+
+    void (async () => {
+      let failure: unknown = null;
+      try {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from("pets")
+          .update({ size_class: sizeClass })
+          .eq("id", petId)
+          .select("id");
+        if (error) {
+          failure = error;
+        } else if (!data || data.length === 0) {
+          // RLS let the statement through but matched nothing.
+          failure = new Error("pets update matched zero rows");
+        }
+      } catch (error) {
+        failure = error;
+      }
+
+      if (failure === null) return;
+      console.warn("pets.size_class update failed; restoring previous value", failure);
+      // Only roll back if this optimistic value is still the one on screen.
+      setPet((prev) =>
+        prev && prev.id === petId && prev.size_class === sizeClass
+          ? { ...prev, size_class: previous }
+          : prev,
+      );
+    })();
+  }, [pet]);
 
   // --- Pet events ---
   // addEvent appends with setEvents, inserts outside that updater, then
@@ -525,13 +614,15 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
       sortPetEvents(
         prev.map((event) => {
           if (event.id !== id) return event;
+          // nextData was validated against event.event_type above; the
+          // spread loses that correlation for TypeScript, hence the asserts.
           if (occurredAt !== undefined && nextData !== undefined) {
-            return { ...event, occurred_at: occurredAt, local_date: nextLocalDate, data: nextData };
+            return { ...event, occurred_at: occurredAt, local_date: nextLocalDate, data: nextData } as PetEvent;
           }
           if (occurredAt !== undefined) {
             return { ...event, occurred_at: occurredAt, local_date: nextLocalDate };
           }
-          return { ...event, data: nextData as PetEvent["data"] };
+          return { ...event, data: nextData } as PetEvent;
         }),
       ),
     );
@@ -594,11 +685,12 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
     addMed,
     updateMed,
     removeMed,
+    updatePetSize,
     addEvent,
     updateEvent,
     removeEvent,
     retryEvent,
-  }), [pet, settings, log, events, viewDate, setViewDate, loading, toggleKibble, toggleSupplement, toggleMed, updateSettings, addSupplement, updateSupplement, removeSupplement, addMed, updateMed, removeMed, addEvent, updateEvent, removeEvent, retryEvent]);
+  }), [pet, settings, log, events, viewDate, setViewDate, loading, toggleKibble, toggleSupplement, toggleMed, updateSettings, addSupplement, updateSupplement, removeSupplement, addMed, updateMed, removeMed, updatePetSize, addEvent, updateEvent, removeEvent, retryEvent]);
 
   return (
     <PetStoreContext.Provider value={value}>
