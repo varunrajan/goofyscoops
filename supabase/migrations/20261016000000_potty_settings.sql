@@ -8,12 +8,6 @@ alter table public.pets
   add column size_class text
   check (size_class in ('toy', 'small', 'medium', 'large', 'giant'));
 
--- Added without inspecting the live policies on pets. If an equivalent
--- UPDATE policy already exists this is harmless: permissive policies are
--- OR'd. Without one, size_class saves would silently update zero rows.
-create policy "Users can update household pets"
-  on public.pets
-  for update
-  to authenticated
-  using (household_id = (select profiles.household_id from public.profiles where profiles.id = auth.uid()))
-  with check (household_id = (select profiles.household_id from public.profiles where profiles.id = auth.uid()));
+-- No UPDATE policy is added here: pets already has
+-- "Users can update household pets" (USING household match) in the live
+-- project, so size_class saves are covered. Applied 2026-10-16.
