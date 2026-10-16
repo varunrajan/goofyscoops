@@ -103,12 +103,12 @@ It is also, unavoidably, a gross feature. Some households will want it; many won
 
 ### Nice-to-Have (P1)
 
-Design pass 2 includes all four of these, so they ship in v1 with the P0 work. "Who logged it" depends on an open question below.
+Design pass 2 includes the first three of these, so they ship in v1 with the P0 work. "Who logged it" ships as data only.
 
 - **Time-of-day stamp on each row** — Each event row shows the local time it was logged (e.g. "6:42 AM"). Cheap, and the single most useful thing on the row for "has she been out recently?"
 - **Daily count summary** — "3 pees · 1 poop" at the top of the section, following the existing daily-total summary treatment (`bg-goofy-teal/10 rounded-2xl`).
 - **Goofy empty state** — Matching the existing supplement/med empty-state pattern (`bg-[#FFD166]/15 rounded-2xl py-4 px-3 text-center`) with copy in the app's voice.
-- **Who logged it** — Small attribution on each row, useful in a two-person household.
+- **Who logged it** — Recorded on every event (`logged_by`, filled by the database) and **not displayed in v1**. Profiles have no display names, so showing a name needs its own feature. The row meta is the time only. Attribution can be added to the UI later with no data migration.
 
 ### Future Considerations (P2)
 
@@ -244,7 +244,6 @@ Also resolved by design pass 2: the five marks fit at 44px; the slider's end lab
 | Question | Owner | Blocking? |
 |---|---|---|
 | **Failed-row look.** Approve the handoff's proposal (red-50 row, "Didn't save · Retry", not editable until saved), or send it back to design? | Product | Yes, for PR 4 |
-| **Who logged it.** Profiles have no name. Show "You" / "Partner" (no schema change; `addEvent` sets `logged_by`), add `profiles.display_name`, or drop the name? See the handoff. | Product | Yes, for PR 4 |
 | **Size not yet set.** Approve the proposed Settings copy "Pick {pet name}'s size to start logging." | UX copy | No |
 | Does the **edit-time UI** ship in v1? Schema supports it from day one regardless; the question is only whether the control is built now. Backfilling is common enough that v1 is defensible. Design pass 2 does not include it. | Product | No |
 

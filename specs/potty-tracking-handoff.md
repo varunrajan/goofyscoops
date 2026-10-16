@@ -96,7 +96,7 @@ Row: `bg-goofy-cream rounded-xl flex flex-col gap-2.5`. Padding: `p-3` open, `py
 **Row header.** One `<button>` filling the row width, `min-h-11 flex items-center gap-2.5 text-left`:
 - Icon bubble: 32px (`w-8 h-8`), `rounded-full bg-goofy-teal/10 text-goofy-teal`, 16px glyph (droplet for pee, stacked mound for poop; SVG paths are in the board).
 - Title: `text-sm font-semibold`, "Pee" or "Poop".
-- Meta: `text-xs text-foreground/60 whitespace-nowrap`, "{time} · {who}". Time format `h:mm AM` (`toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })`). Who: see Data implications below.
+- Meta: `text-xs text-foreground/60 whitespace-nowrap`, "{time}" only. Time format `h:mm AM` (`toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })`). **The board shows "7:56 AM · Sam"; v1 drops the name** because profiles have no display names. Build the meta as the time alone.
 - Collapsed only, pushed right with `ml-auto`: summary, `text-xs font-semibold text-foreground/70 truncate`. Pee: size word ("Big"). Poop: "{size word} · {texture word}" ("Big · Just right").
 
 **Delete.** Open row only, at the right of the header. 44×44 hit area pulled into the padding (`-m-1.5`), 16px trash icon, `text-red-400 hover:text-red-600`. Tap removes the row with no confirmation, per the spec's mis-tap story.
@@ -193,12 +193,7 @@ New section card between Medications and Invite Partner: `bg-white rounded-3xl p
 Two things in the design touch the data model. Neither is a schema change if you take the recommendation.
 
 1. **Pee has no duration.** Already applied: `duration_secs` is removed from `potty_pee` in `potty-tracking.md` and `data-model.md`.
-2. **"Who logged it" needs a name, and profiles have none.** The row meta shows "7:56 AM · Sam". `profiles` has only `id` and `household_id`, and F11 leaves `logged_by` optional on insert. Options:
-   - **A. "You" / "Partner"** (recommended for v1). Show "You" when `logged_by` = the signed-in user, otherwise "Partner". No schema change. It needs `addEvent` to set `logged_by = auth.uid()`, which settles F11 for events created in the app.
-   - **B. Real names.** Add `profiles.display_name` and a way to set it. A migration and new UI, outside this feature.
-   - **C. Drop the name.** Meta shows the time only.
-
-   "Who logged it" is P1 in the spec, so C is allowed. A is cheap and keeps the design.
+2. **"Who logged it" is data only in v1.** The board shows a name in the row meta ("7:56 AM · Sam"), but `profiles` has only `id` and `household_id`, so there is no name to show. Decision 2026-10-10: every event stores `logged_by` (`not null default auth.uid()`, filled by the database), and the UI shows the time only. Attribution display is a later feature that needs profile names; the data will already be there.
 
 ## Edge cases
 
@@ -215,7 +210,11 @@ Tap only. The slider has no drag in the design. Tapping a zone is enough for one
 
 ## Motion
 
-The board approximates springs with `cubic-bezier(.34, 1.8, .64, 1)` over 350ms. Build them with Framer Motion's standard spring, `{ type: "spring", stiffness: 400, damping: 17 }`, per the design system.
+**The board is the source of truth for feel.** Open [`docs/design/potty-tracking-v2.html`](../docs/design/potty-tracking-v2.html) in a browser. Every frame is live: tap the marks, the slider stops, the add buttons and the Settings switch, and match what you see. Where this section and the board disagree, the board wins.
+
+The board approximates springs with `cubic-bezier(.34, 1.8, .64, 1)` over 350ms. Build them with Framer Motion's standard spring, `{ type: "spring", stiffness: 400, damping: 17 }`, per the design system. The spring values are a starting point. Tune them until the controls feel like the board, and put the final values in one shared constant rather than repeating them per component.
+
+### In v1: control animations (all on the board)
 
 | Element | Trigger | Animation |
 |---|---|---|
@@ -228,7 +227,29 @@ The board approximates springs with `cubic-bezier(.34, 1.8, .64, 1)` over 350ms.
 | Switch knob | Toggle | Spring; track color 200ms |
 | Size pill | Select | 150ms color transitions |
 
-Respect `prefers-reduced-motion`: use Framer Motion's `MotionConfig reducedMotion="user"`.
+### In v1: snap, no animation
+
+The board does not animate these, so v1 does not either. They change state instantly.
+
+- A new row appearing at the top of the list.
+- A row opening or collapsing.
+- A row being deleted.
+- The empty state appearing or disappearing.
+- The Potty section appearing when the feature is switched on.
+
+Do not add height transitions, `layout` animations or `AnimatePresence` for these. Keeping them as plain state changes also keeps the list simple while the failed-row behavior is built.
+
+### Deferred: animation pass
+
+Revisit after the feature is in use. Candidates, in order of likely value: new row slides in at the top, row open and collapse with a short height transition, deleted row collapses out. This needs its own design decision, because the board gives no reference for any of them. Not part of PRs 3 or 4.
+
+### Reduced motion
+
+Respect `prefers-reduced-motion`: use Framer Motion's `MotionConfig reducedMotion="user"`. This turns off the spring movement; the color transitions can stay.
+
+### How to check it
+
+Open the board and the running app side by side. For each row of the v1 table, the app's control must feel the same as the board's. List the interactions checked in the PR description.
 
 ## Accessibility
 
