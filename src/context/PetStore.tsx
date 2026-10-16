@@ -116,7 +116,8 @@ interface PetStoreContextValue {
   updateMed: (id: string, patch: Partial<Omit<MedConfig, "id">>) => void;
   removeMed: (id: string) => void;
   updatePetSize: (sizeClass: PetSizeClass) => void;
-  addEvent: <K extends keyof PetEventPayloads>(type: K, data: PetEventPayloads[K]) => void;
+  /** Returns the client-generated id of the new row, or null if the write was dropped. */
+  addEvent: <K extends keyof PetEventPayloads>(type: K, data: PetEventPayloads[K]) => string | null;
   updateEvent: (id: string, patch: PetEventPatch) => void;
   removeEvent: (id: string) => void;
   retryEvent: (id: string) => void;
@@ -543,14 +544,14 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
   const addEvent = useCallback(function addEvent<K extends keyof PetEventPayloads>(
     type: K,
     data: PetEventPayloads[K],
-  ): void {
+  ): string | null {
     if (!isValidPetEventData(String(type), data)) {
       console.warn("Dropping pet event write: unregistered type or invalid data", type);
-      return;
+      return null;
     }
     if (!pet) {
       console.warn("Dropping pet event write: no current pet");
-      return;
+      return null;
     }
 
     const instant = new Date();
@@ -584,6 +585,8 @@ export function PetStoreProvider({ children }: { children: React.ReactNode }) {
     void insertPetEvent(payload).then((result) => {
       setEvents((prev) => withSaveState(prev, id, result.ok ? "saved" : "failed"));
     });
+
+    return id;
   }, [pet]);
 
   const updateEvent = useCallback((id: string, patch: PetEventPatch) => {
