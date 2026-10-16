@@ -9,6 +9,7 @@ import KibbleTracker from "@/components/KibbleTracker";
 import ItemTracker from "@/components/ItemTracker";
 import DogAvatar from "@/components/DogAvatar";
 import { InstallPrompt } from "@/components/InstallPrompt";
+import { PottySection } from "@/components/PottySection";
 import { formatScoopLabel } from "@/lib/scoop";
 
 const GREETINGS = [
@@ -175,6 +176,9 @@ export default function Dashboard() {
           </div>
         )}
       </section>
+
+      {/* Potty Section (renders nothing unless enabled and a size is set) */}
+      <PottySection />
 
       {!log && !isToday && (
         <p className="text-center text-gray-400 text-sm mt-6">Nothing was logged this day.</p>
