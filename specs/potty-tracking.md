@@ -157,8 +157,8 @@ Register both in the event type table in `specs/data-model.md`.
 Governed by `specs/data-model.md`, but two consequences are specific enough to this feature to restate:
 
 - An event's `occurred_at` defaults to insert time, which is correct for the one-tap live-logging path this feature is designed around.
-- It must still be **editable**, because "she went an hour ago and I forgot to log it" is the normal case, not the edge case. The schema supports this from the first migration; whether the edit UI ships in v1 is an open question below.
-- Correcting a time across midnight moves the event to a different day and it leaves today's list. The UI must acknowledge this rather than letting the row vanish silently.
+- It must still be **editable**, because "she went an hour ago and I forgot to log it" is the normal case, not the edge case. The schema supports this from the first migration. **Decided 2026-11-12: the edit UI ships**, as a minute stepper in the open row. See "Edit time (frame 2g)" in the handoff.
+- Correcting a time across midnight moves the event to a different day and it leaves today's list. The UI must acknowledge this rather than letting the row vanish silently. The edit-time control proposes to sidestep this by keeping an edited time inside the event's own day (handoff proposal P1), so no acknowledgement UI is built yet. This rule still applies to any later control that can move an event to another day.
 
 ### Settings
 
@@ -217,6 +217,8 @@ Design pass 2 ("Potty Tracking v2") answers the brief. The full build spec, with
 
 Five marks at 375px are about 55px wide and 44px tall, so the touch-target constraint is met.
 
+**Edit time (added 2026-11-12).** The board gained two edit-time explorations: frame 2g, a minute stepper, and frame 2h, digit wheels. 2g is chosen. An "Edit" button beside the time on the open row reveals the stepper above the size control; a new entry opens with it showing. The build spec is the handoff's "Edit time (frame 2g)" section. The live board for these frames is `docs/design/potty-tracking-v2-edit-time/index.html`, with screenshots in `docs/design/img/potty-edit-time/`.
+
 **Tone guardrail** (unchanged): playful, not crude. The bar is that someone would be comfortable using this in a dog park with a stranger glancing at their screen.
 
 ---
@@ -245,7 +247,8 @@ Also resolved by design pass 2: the five marks fit at 44px; the slider's end lab
 |---|---|---|
 | **Failed-row look.** Approve the handoff's proposal (red-50 row, "Didn't save · Retry", not editable until saved), or send it back to design? | Product | Yes, for PR 4 |
 | **Size not yet set.** Approve the proposed Settings copy "Pick {pet name}'s size to start logging." | UX copy | No |
-| Does the **edit-time UI** ship in v1? Schema supports it from day one regardless; the question is only whether the control is built now. Backfilling is common enough that v1 is defensible. Design pass 2 does not include it. | Product | No |
+| ~~Does the **edit-time UI** ship in v1?~~ **Resolved 2026-11-12: yes.** Minute stepper, board frame 2g, specified in the handoff under "Edit time (frame 2g)". | Product | No |
+| **Edit-time proposals P1–P6** in the handoff (stay inside the day, no future times, save on close, row moves on save, pending rows, "Now" on past days). The board is silent on all six. Approve each, or change it. | Product | Yes, for the edit-time PR |
 
 ---
 
@@ -258,5 +261,6 @@ Also resolved by design pass 2: the five marks fit at 44px; the slider's end lab
 4. **Design** — done 2026-10-01; see the handoff
 5. **Dashboard section** — event list + add actions
 6. **Scale + slider components** — built from the handoff, documented back into the design system
+7. **Edit time** (added 2026-11-12) — `TimeStepper` and the Edit button in `PottyEventRow`, from the handoff's "Edit time (frame 2g)". No schema or context changes. Branch `feature/edit-time-on-potty-tracking`. Blocked on approval of proposals P1–P6
 
 Steps 5–6 are unblocked except for the two Product questions marked blocking for PR 4.

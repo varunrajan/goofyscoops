@@ -1,0 +1,198 @@
+/*
+ * GoofyScoops Design System — Colors & Type Tokens
+ * Source: github.com/varunrajan/goofyscoops
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap');
+
+:root {
+  /* Brand colors */
+  --gs-bg:          #F5D6C0;
+  --gs-cream:       #FCF6EC;
+  --gs-white:       #FFFFFF;
+  --gs-teal:        #00A896;
+  --gs-teal-dark:   #009183;
+  --gs-teal-10:     rgba(0,168,150,0.10);
+  --gs-teal-20:     rgba(0,168,150,0.20);
+  --gs-teal-25:     rgba(0,168,150,0.25);
+  --gs-yellow:      #FFD166;
+  --gs-yellow-15:   rgba(255,209,102,0.15);
+  --gs-yellow-20:   rgba(255,209,102,0.20);
+  --gs-fg:          #3D3D3D;
+  --gs-fg-60:       rgba(61,61,61,0.60);
+  --gs-fg-50:       rgba(61,61,61,0.50);
+  --gs-fg-40:       rgba(61,61,61,0.40);
+  --gs-border:      #E8DCC8;
+  --gs-error:       #DC2626;
+  --gs-error-bg:    #FEF2F2;
+
+  /* Typography */
+  --gs-font-sans: 'Plus Jakarta Sans', 'Geist', Arial, Helvetica, sans-serif;
+  --gs-font-mono: 'Fira Code', 'Geist Mono', monospace;
+
+  /* Font sizes */
+  --gs-text-xs:   0.75rem;
+  --gs-text-sm:   0.875rem;
+  --gs-text-base: 1rem;
+  --gs-text-lg:   1.125rem;
+  --gs-text-xl:   1.25rem;
+  --gs-text-2xl:  1.5rem;
+  --gs-text-3xl:  1.875rem;
+  --gs-text-4xl:  2.25rem;
+
+  /* Font weights */
+  --gs-regular:   400;
+  --gs-medium:    500;
+  --gs-semibold:  600;
+  --gs-bold:      700;
+  --gs-xbold:     800;
+
+  /* Spacing */
+  --gs-gap-1: 0.25rem;
+  --gs-gap-2: 0.5rem;
+  --gs-gap-3: 0.75rem;
+  --gs-gap-4: 1rem;
+  --gs-gap-5: 1.25rem;
+  --gs-gap-6: 1.5rem;
+  --gs-gap-8: 2rem;
+
+  /* Border radius */
+  --gs-r-sm:   0.75rem;   /* inputs, list items */
+  --gs-r-md:   1rem;      /* inner containers */
+  --gs-r-lg:   1.5rem;    /* cards */
+  --gs-r-full: 9999px;    /* buttons, circles, pills */
+
+  /* Shadows */
+  --gs-shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --gs-shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 1px 3px rgba(0,0,0,0.06);
+}
+
+/* Base reset */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  font-family: var(--gs-font-sans);
+  font-size: var(--gs-text-sm);
+  color: var(--gs-fg);
+  background: var(--gs-bg);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Utility classes ─────────────────────────────── */
+
+/* Section eyebrow label */
+.gs-label {
+  font-size: var(--gs-text-xs);
+  font-weight: var(--gs-xbold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gs-teal);
+  margin-bottom: 0.75rem;
+}
+
+/* Card */
+.gs-card {
+  background: var(--gs-white);
+  border-radius: var(--gs-r-lg);
+  padding: 1.25rem;
+  box-shadow: var(--gs-shadow-sm);
+  border: 1px solid var(--gs-border);
+}
+
+/* Primary button */
+.gs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--gs-teal);
+  color: #fff;
+  font-family: var(--gs-font-sans);
+  font-size: var(--gs-text-base);
+  font-weight: var(--gs-bold);
+  padding: 0.875rem 1.5rem;
+  border-radius: var(--gs-r-full);
+  border: none;
+  cursor: pointer;
+  box-shadow: var(--gs-shadow-md);
+  transition: background 0.15s, transform 0.1s;
+  width: 100%;
+}
+.gs-btn:hover  { background: var(--gs-teal-dark); }
+.gs-btn:active { transform: scale(0.98); }
+
+/* Yellow button */
+.gs-btn-yellow {
+  background: var(--gs-yellow);
+  color: var(--gs-fg);
+  box-shadow: var(--gs-shadow-sm);
+}
+.gs-btn-yellow:hover { background: var(--gs-yellow-15); filter: brightness(0.95); }
+
+/* Input */
+.gs-input {
+  width: 100%;
+  border: 2px solid var(--gs-teal-20);
+  border-radius: var(--gs-r-sm);
+  padding: 0.75rem 1rem;
+  font-size: var(--gs-text-sm);
+  font-family: var(--gs-font-sans);
+  background: transparent;
+  color: var(--gs-fg);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.gs-input:focus { border-color: var(--gs-teal); }
+
+/* Pill badge */
+.gs-pill {
+  display: inline-block;
+  background: var(--gs-teal);
+  color: #fff;
+  font-size: var(--gs-text-sm);
+  font-weight: var(--gs-semibold);
+  padding: 0.5rem 1.25rem;
+  border-radius: var(--gs-r-full);
+  box-shadow: var(--gs-shadow-sm);
+}
+
+/* Kibble circle — empty */
+.gs-circle {
+  width: 60px; height: 60px;
+  border-radius: var(--gs-r-full);
+  border: 3px solid var(--gs-teal);
+  background: transparent;
+  display: flex; align-items: center; justify-content: center;
+  font-size: var(--gs-text-base);
+  font-weight: var(--gs-bold);
+  color: var(--gs-teal);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.gs-circle:active { transform: scale(0.8); }
+
+/* Kibble circle — checked */
+.gs-circle.checked {
+  background: var(--gs-yellow);
+  border-color: var(--gs-yellow);
+  color: var(--gs-fg);
+}
+
+/* Kibble circle — locked */
+.gs-circle.locked {
+  border-color: var(--gs-teal-25);
+  color: var(--gs-teal-25);
+  cursor: default;
+}
+
+/* Empty state */
+.gs-empty {
+  background: var(--gs-yellow-15);
+  border-radius: var(--gs-r-md);
+  padding: 1rem 0.75rem;
+  text-align: center;
+  color: var(--gs-fg-50);
+  font-size: var(--gs-text-sm);
+  font-weight: var(--gs-medium);
+}
