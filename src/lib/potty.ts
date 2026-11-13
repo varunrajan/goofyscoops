@@ -39,6 +39,14 @@ export const POTTY_DEFAULTS = {
 
 /**
  * The one spring for every potty control (switch knob, scale fills, slider
- * thumb). Tune here, not per component. See the handoff ("Motion").
+ * thumb, time stepper). Tune here, not per component. See the handoff ("Motion").
  */
 export const POTTY_SPRING = { type: "spring", stiffness: 400, damping: 17 } as const;
+
+/** `h:mm AM`. Shared by the row meta and the time stepper readout. */
+export function formatPottyTime(occurredAt: string): string {
+  return new Date(occurredAt).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}

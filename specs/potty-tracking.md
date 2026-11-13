@@ -248,7 +248,7 @@ Also resolved by design pass 2: the five marks fit at 44px; the slider's end lab
 | **Failed-row look.** Approve the handoff's proposal (red-50 row, "Didn't save · Retry", not editable until saved), or send it back to design? | Product | Yes, for PR 4 |
 | **Size not yet set.** Approve the proposed Settings copy "Pick {pet name}'s size to start logging." | UX copy | No |
 | ~~Does the **edit-time UI** ship in v1?~~ **Resolved 2026-11-12: yes.** Minute stepper, board frame 2g, specified in the handoff under "Edit time (frame 2g)". | Product | No |
-| **Edit-time proposals P1–P6** in the handoff (stay inside the day, no future times, save on close, row moves on save, pending rows, "Now" on past days). The board is silent on all six. Approve each, or change it. | Product | Yes, for the edit-time PR |
+| ~~**Edit-time proposals P1–P6** in the handoff (stay inside the day, no future times, save on close, row moves on save, pending rows, "Now" on past days). The board is silent on all six. Approve each, or change it.~~ **Resolved 2026-11-12: approved as written.** | Product | No |
 
 ---
 
@@ -261,6 +261,6 @@ Also resolved by design pass 2: the five marks fit at 44px; the slider's end lab
 4. **Design** — done 2026-10-01; see the handoff
 5. **Dashboard section** — event list + add actions
 6. **Scale + slider components** — built from the handoff, documented back into the design system
-7. **Edit time** (added 2026-11-12) — `TimeStepper` and the Edit button in `PottyEventRow`, from the handoff's "Edit time (frame 2g)". No schema or context changes. Branch `feature/edit-time-on-potty-tracking`. Blocked on approval of proposals P1–P6
+7. **Edit time** (added 2026-11-12) — `TimeStepper` and the Edit button in `PottyEventRow`, from the handoff's "Edit time (frame 2g)". No schema or context changes. Branch `feature/edit-time-on-potty-tracking`.
 
 Steps 5–6 are unblocked except for the two Product questions marked blocking for PR 4.

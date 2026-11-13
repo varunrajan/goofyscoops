@@ -25,8 +25,14 @@ export function PottySection() {
   // clears it, so coming back does not reopen. Refetches keep ids, so an
   // open row survives a refetch as long as it still exists.
   const [openRow, setOpenRow] = useState<{ id: string; viewDate: string } | null>(null);
+  // The row that should mount with the stepper already open. Cleared with
+  // the date, so coming back does not reopen the stepper.
+  const [stepperFor, setStepperFor] = useState<{ id: string; viewDate: string } | null>(null);
   if (openRow && openRow.viewDate !== viewDate) {
     setOpenRow(null);
+  }
+  if (stepperFor && stepperFor.viewDate !== viewDate) {
+    setStepperFor(null);
   }
   const openId = openRow && openRow.viewDate === viewDate ? openRow.id : null;
 
@@ -73,6 +79,7 @@ export function PottySection() {
         : addEvent("potty_poop", { size: POTTY_DEFAULTS.size, consistency: POTTY_DEFAULTS.consistency });
     if (!id) return;
     setOpenRow({ id, viewDate });
+    setStepperFor({ id, viewDate });
     announce(type === "potty_pee" ? "Pee logged" : "Poop logged");
   }
 
@@ -124,6 +131,8 @@ export function PottySection() {
                 open={row.id === openId}
                 onToggle={() => toggleRow(row.id)}
                 sizeClass={pet.size_class}
+                viewDate={viewDate}
+                startWithStepper={stepperFor?.id === row.id && stepperFor.viewDate === viewDate}
               />
             ))}
           </ul>
