@@ -135,7 +135,7 @@ Row: `bg-goofy-cream rounded-xl flex flex-col gap-2.5`. Padding: `p-3` open, `py
 **Added 2026-11-12.** Closes the open question "does the edit-time UI ship in v1?": it does, as a minute stepper inside the open row.
 
 **References.**
-- Live board, frame 2g "Time · minute stepper": open [`docs/design/potty-tracking-v2-edit-time/index.html`](../docs/design/potty-tracking-v2-edit-time/index.html) in a browser and scroll to the "Time editor" heading. It loads React from unpkg, so it needs a network connection. The older single-file snapshot, `docs/design/potty-tracking-v2.html`, stops at frame 2f and does not contain this control.
+- Source: Claude Design board "Potty Tracking v2", frame 2g "Time · minute stepper". There is no live copy of this frame in the repo; the snapshot `docs/design/potty-tracking-v2.html` stops at frame 2f. The screenshots below and this section are the whole reference.
 - Screenshots, in `docs/design/img/potty-edit-time/`:
 
 | Open row, before Edit | Editor showing | New entry |
@@ -150,6 +150,7 @@ Row: `bg-goofy-cream rounded-xl flex flex-col gap-2.5`. Padding: `p-3` open, `py
 - The board renders in Plus Jakarta Sans. Build in Geist.
 - The board's stepper wraps past midnight and has no upper limit. The build does neither; see proposals P1 and P2.
 - The board changes the time on every tick and never re-sorts. The build follows P3.
+- The board's minus and plus repeat while held. The build does not: one tap, one step. Decided 2026-11-12.
 
 ### Edit button
 
@@ -167,7 +168,7 @@ A new component, `src/components/TimeStepper.tsx`. It renders between the row he
 Wrapper: `flex flex-col gap-2.5 pb-1`.
 
 **Row 1.** `flex items-center justify-between gap-2`.
-- Minus and plus: `motion.button`, `w-[52px] h-[52px] shrink-0 rounded-full bg-white border-2 border-goofy-teal text-teal-700 flex items-center justify-center touch-manipulation select-none`. Lucide `Minus` and `Plus`, 20px, stroke 3. `whileTap` scale 0.88 with `POTTY_SPRING`. Disabled: `opacity-40 cursor-default`, no tap animation.
+- Minus and plus: `motion.button`, `w-[52px] h-[52px] shrink-0 rounded-full bg-white border-2 border-goofy-teal text-teal-700 flex items-center justify-center touch-manipulation`. Lucide `Minus` and `Plus`, 20px, stroke 3. `whileTap` scale 0.88 with `POTTY_SPRING`. Disabled: `opacity-40 cursor-default`, no tap animation.
 - Readout, centered: `flex items-baseline gap-1.5 tabular-nums`. Time "7:58" in `text-4xl font-extrabold tracking-tight leading-none` (the board draws 34px; use the scale). "AM" / "PM" in `text-sm font-bold text-foreground/70`.
 
 **Row 2.** `grid grid-cols-3 gap-2`. Three chips: "−5 min", "Now", "+5 min". Each `min-h-11 rounded-full bg-white border border-[#E8DCC8] text-sm font-bold cursor-pointer`. "Now" is `text-teal-700`; the other two are `text-foreground`. Disabled as above. The minus sign in "−5 min" is U+2212, not a hyphen.
@@ -178,8 +179,7 @@ Wrapper: `flex flex-col gap-2.5 pb-1`.
 |---|---|
 | Tap Edit on the open row | The stepper appears between the header and Size. The button reads "Done". |
 | Tap Done | The stepper hides. The time is saved (P3). |
-| Tap minus / plus | One minute earlier / later. |
-| Press and hold minus / plus | Steps once, waits 400ms, then repeats every 90ms until pointer up, leave or cancel, or until a limit is reached. |
+| Tap minus / plus | One minute earlier / later. One tap is one step; holding does not repeat. |
 | Tap "−5 min" / "+5 min" | Five minutes earlier / later. |
 | Tap "Now" | Sets the time to the current instant. |
 | Tap + Pee / + Poop | The new row opens **with the stepper already showing**. |
@@ -196,7 +196,7 @@ The board is silent on all six. Per the rule at the top of this file, build none
 
 - **P1. Stay inside the day.** A time is allowed only if `localDate(candidate) === event.local_date`. A control whose step would leave the day is disabled. This keeps cross-midnight edits impossible from this control, so the "acknowledge the move" UI in the parent spec is still not needed. Moving an event to another day stays out of scope.
 - **P2. No future times.** When `viewDate` is today, a time is allowed only if `candidate <= now`. Plus and "+5 min" are disabled when their step would pass now.
-- **P3. Save on close, not per tick.** The row holds a draft time in local state while the stepper shows. The header time and the readout show the draft. `updateEvent(id, { occurred_at })` is called once, when the stepper hides for any reason in the table above, on unmount, and when the document becomes hidden (`visibilitychange`). Nothing is written if the draft equals the stored time. One write per edit, and a held button does not issue a write every 90ms.
+- **P3. Save on close, not per tick.** The row holds a draft time in local state while the stepper shows. The header time and the readout show the draft. `updateEvent(id, { occurred_at })` is called once, when the stepper hides for any reason in the table above, on unmount, and when the document becomes hidden (`visibilitychange`). Nothing is written if the draft equals the stored time. One write per edit, however many taps it took.
 - **P4. The row moves when it saves.** `updateEvent` re-sorts, so the row takes its new position when the stepper closes and not while stepping. This follows from P3 and needs no extra code. If the moved row is still the open row, it stays open.
 - **P5. A row that is still saving.** A just-logged row is `saveState: 'pending'` until its insert lands, and it opens with the stepper showing. If the stepper closes while the row is still pending, hold the write until the row is `'saved'`. If the row becomes `'failed'`, drop the draft; a failed row is not editable. Size and texture edits on a pending row may have the same hazard today. Report what you find; do not change that behavior in this PR.
 - **P6. "Now" on past days.** When `viewDate` is not today, "Now" is not rendered and the chip row is `grid-cols-2`.
@@ -205,7 +205,7 @@ The board is silent on all six. Per the rule at the top of this file, build none
 
 - Minus / plus `aria-label`: "One minute earlier" / "One minute later". Chips are labelled by their text.
 - The readout is `aria-live="polite"`, so each step is announced.
-- Enter or Space on minus / plus steps once. Hold-to-repeat is pointer only.
+- Minus, plus and the chips are plain buttons: Enter or Space steps once.
 - Disabled controls use the `disabled` attribute.
 - Focus order within the open row becomes: header, Edit, delete, minus, plus, the chips, size, texture.
 
@@ -214,7 +214,7 @@ The board is silent on all six. Per the rule at the top of this file, build none
 No automated tests (decision 2026-10-10). Check by hand and list the results:
 
 1. Open a row, tap Edit, step back three minutes, tap Done. The time shows in the header, and the row is in the right place in the list after a reload.
-2. Hold minus for two seconds. The time runs, then stops on release. The network tab shows one update, after Done.
+2. Tap minus five times, then Done. The network tab shows one update, after Done.
 3. Log a pee. The stepper is showing. Tap "−5 min", then tap another row. The pee keeps the new time after a reload.
 4. On today, plus and "+5 min" are disabled at the current minute.
 5. On an event shortly after midnight, minus and "−5 min" disable at 12:00 AM. The event's `local_date` is unchanged after any edit.

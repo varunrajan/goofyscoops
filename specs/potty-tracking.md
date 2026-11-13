@@ -217,7 +217,7 @@ Design pass 2 ("Potty Tracking v2") answers the brief. The full build spec, with
 
 Five marks at 375px are about 55px wide and 44px tall, so the touch-target constraint is met.
 
-**Edit time (added 2026-11-12).** The board gained two edit-time explorations: frame 2g, a minute stepper, and frame 2h, digit wheels. 2g is chosen. An "Edit" button beside the time on the open row reveals the stepper above the size control; a new entry opens with it showing. The build spec is the handoff's "Edit time (frame 2g)" section. The live board for these frames is `docs/design/potty-tracking-v2-edit-time/index.html`, with screenshots in `docs/design/img/potty-edit-time/`.
+**Edit time (added 2026-11-12).** The board gained two edit-time explorations: frame 2g, a minute stepper, and frame 2h, digit wheels. 2g is chosen. An "Edit" button beside the time on the open row reveals the stepper above the size control; a new entry opens with it showing. The build spec is the handoff's "Edit time (frame 2g)" section. Screenshots of frame 2g are in `docs/design/img/potty-edit-time/`. Minus and plus step one minute per tap; there is no press-and-hold.
 
 **Tone guardrail** (unchanged): playful, not crude. The bar is that someone would be comfortable using this in a dog park with a stranger glancing at their screen.
 
