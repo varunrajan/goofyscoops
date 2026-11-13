@@ -2,6 +2,7 @@
 
 **Source:** Claude Design board "Potty Tracking v2" (design pass 2), frames 2a–2f, exported 2026-10-01
 **For:** PR 3 (Settings) and PR 4 (dashboard section and controls)
+**Added 2026-11-12:** frame 2g, the edit-time control, for the edit-time PR on `feature/edit-time-on-potty-tracking`. See [Edit time (frame 2g)](#edit-time-frame-2g).
 **Parent spec:** [`specs/potty-tracking.md`](./potty-tracking.md)
 
 Everything here is read from the board's markup, not estimated from screenshots. Where the board is silent, the gap is marked **Not in design** and a proposal is given for sign-off. Build nothing marked **Proposal** until it is approved.
@@ -58,6 +59,7 @@ New components, all in `src/components/`. Document each back into `docs/design-s
 | `FillScale` | `value: 1..5`, `onChange`, `labels: string[]`, `icon` | Pee size. Fill grows to the selected mark |
 | `SelectScale` | `value: 1..5`, `onChange`, `labels: string[]`, `icon` | Poop size. One mark highlighted |
 | `DetentSlider` | `value: 1..5`, `onChange`, `labels: string[]`, `endLabels: [string, string, string]` | Texture. Fill grows out from the center stop |
+| `TimeStepper` | `value: Date`, `onChange(next: Date)`, `min: Date`, `max: Date`, `showNow: boolean` | Edit time. Added 2026-11-12; see "Edit time (frame 2g)". Knows nothing about events or the store |
 
 `FillScale` and `SelectScale` share a container and mark spec. Build them as one component with a `mode: 'fill' \| 'select'` prop if that is cleaner. The reactivity log on the roadmap will reuse the scale.
 
@@ -127,6 +129,99 @@ Row: `bg-goofy-cream rounded-xl flex flex-col gap-2.5`. Padding: `p-3` open, `py
 - Thumb: 44px circle, `bg-goofy-yellow border-[3px] border-foreground shadow-md`, centered on the selected stop, `top-0.5`, `pointer-events-none`.
 - Hit area: five equal transparent zones covering the whole box. Tapping a zone snaps to its stop. There is no drag in the design; see Gestures.
 - End labels under the box: `grid grid-cols-3 text-xs font-semibold text-foreground/60`: "Soupy" (left), "Just right" (center), "Pebbly" (right).
+
+## Edit time (frame 2g)
+
+**Added 2026-11-12.** Closes the open question "does the edit-time UI ship in v1?": it does, as a minute stepper inside the open row.
+
+**References.**
+- Source: Claude Design board "Potty Tracking v2", frame 2g "Time · minute stepper". There is no live copy of this frame in the repo; the snapshot `docs/design/potty-tracking-v2.html` stops at frame 2f. The screenshots below and this section are the whole reference.
+- Screenshots, in `docs/design/img/potty-edit-time/`:
+
+| Open row, before Edit | Editor showing | New entry |
+|---|---|---|
+| ![Open poop row with an Edit link beside the time](../docs/design/img/potty-edit-time/01-row-open.png) | ![Stepper between the row header and the Size control](../docs/design/img/potty-edit-time/02-time-editor-open.png) | ![A just-logged pee, open, with the stepper already showing](../docs/design/img/potty-edit-time/03-new-entry.png) |
+
+**Frame 2h (digit wheels) is a rejected alternative. Do not build it.** It stays on the board for the record. The stepper was chosen because almost every correction is "I logged this a few minutes late", it adds about 110px to the open row against about 190px for the wheels, and it is plain buttons.
+
+**Where the board differs from the build.** The board is a prototype; these are not instructions:
+- The board's meta reads "7:58 AM · Sam". The build shows the time only, as in the rest of this handoff.
+- The board's delete icon is a darker red. Keep `text-red-400 hover:text-red-600`.
+- The board renders in Plus Jakarta Sans. Build in Geist.
+- The board's stepper wraps past midnight and has no upper limit. The build does neither; see proposals P1 and P2.
+- The board changes the time on every tick and never re-sorts. The build follows P3.
+- The board's minus and plus repeat while held. The build does not: one tap, one step. Decided 2026-11-12.
+
+### Edit button
+
+Open row only, and never on a failed row. It sits in the row header immediately after the time, before delete.
+
+- The header toggle button is `flex-1` today. When the row is open it becomes `flex-none` (keep `min-w-0`), so Edit sits beside the time and not at the far right. Collapsed rows are unchanged.
+- Delete moves to the right edge: replace `-m-1.5` with `-my-1.5 -mr-1.5 ml-auto` on the open row.
+- Edit: `shrink-0 min-h-11 px-2 text-sm font-bold text-teal-700 underline underline-offset-[3px] cursor-pointer`. Text only, no icon; an icon does not fit at 375px beside delete. `text-teal-700` is the darker teal the dashboard's date chevrons already use; it passes 4.5:1 on cream, which `text-goofy-teal` does not.
+- Label "Edit" while the stepper is hidden, "Done" while it shows. `aria-expanded` follows the stepper. `aria-label`: "Edit time for Pee at 7:58 AM" / "Done editing time".
+
+### TimeStepper
+
+A new component, `src/components/TimeStepper.tsx`. It renders between the row header and the Size readout. Size and texture stay visible and editable below it.
+
+Wrapper: `flex flex-col gap-2.5 pb-1`.
+
+**Row 1.** `flex items-center justify-between gap-2`.
+- Minus and plus: `motion.button`, `w-[52px] h-[52px] shrink-0 rounded-full bg-white border-2 border-goofy-teal text-teal-700 flex items-center justify-center touch-manipulation`. Lucide `Minus` and `Plus`, 20px, stroke 3. `whileTap` scale 0.88 with `POTTY_SPRING`. Disabled: `opacity-40 cursor-default`, no tap animation.
+- Readout, centered: `flex items-baseline gap-1.5 tabular-nums`. Time "7:58" in `text-4xl font-extrabold tracking-tight leading-none` (the board draws 34px; use the scale). "AM" / "PM" in `text-sm font-bold text-foreground/70`.
+
+**Row 2.** `grid grid-cols-3 gap-2`. Three chips: "−5 min", "Now", "+5 min". Each `min-h-11 rounded-full bg-white border border-[#E8DCC8] text-sm font-bold cursor-pointer`. "Now" is `text-teal-700`; the other two are `text-foreground`. Disabled as above. The minus sign in "−5 min" is U+2212, not a hyphen.
+
+### Edit-time behavior
+
+| Action | Result |
+|---|---|
+| Tap Edit on the open row | The stepper appears between the header and Size. The button reads "Done". |
+| Tap Done | The stepper hides. The time is saved (P3). |
+| Tap minus / plus | One minute earlier / later. One tap is one step; holding does not repeat. |
+| Tap "−5 min" / "+5 min" | Five minutes earlier / later. |
+| Tap "Now" | Sets the time to the current instant. |
+| Tap + Pee / + Poop | The new row opens **with the stepper already showing**. |
+| Collapse the row, open another row, log a new event, change `viewDate` | The stepper hides and the time is saved (P3). |
+| Change size or texture while the stepper shows | Works as today; the stepper stays. |
+
+Stepping adds or subtracts whole minutes from the instant (`± 60_000` ms), so the seconds are preserved. Format the readout with the same call as `formatPottyTime`.
+
+Whether the stepper is showing is local component state, like which row is open. Never persisted, never synced.
+
+### Proposals — Not in design
+
+The board is silent on all six. Per the rule at the top of this file, build none of them until each is approved.
+
+- **P1. Stay inside the day.** A time is allowed only if `localDate(candidate) === event.local_date`. A control whose step would leave the day is disabled. This keeps cross-midnight edits impossible from this control, so the "acknowledge the move" UI in the parent spec is still not needed. Moving an event to another day stays out of scope.
+- **P2. No future times.** When `viewDate` is today, a time is allowed only if `candidate <= now`. Plus and "+5 min" are disabled when their step would pass now.
+- **P3. Save on close, not per tick.** The row holds a draft time in local state while the stepper shows. The header time and the readout show the draft. `updateEvent(id, { occurred_at })` is called once, when the stepper hides for any reason in the table above, on unmount, and when the document becomes hidden (`visibilitychange`). Nothing is written if the draft equals the stored time. One write per edit, however many taps it took.
+- **P4. The row moves when it saves.** `updateEvent` re-sorts, so the row takes its new position when the stepper closes and not while stepping. This follows from P3 and needs no extra code. If the moved row is still the open row, it stays open.
+- **P5. A row that is still saving.** A just-logged row is `saveState: 'pending'` until its insert lands, and it opens with the stepper showing. If the stepper closes while the row is still pending, hold the write until the row is `'saved'`. If the row becomes `'failed'`, drop the draft; a failed row is not editable. Size and texture edits on a pending row may have the same hazard today. Report what you find; do not change that behavior in this PR.
+- **P6. "Now" on past days.** When `viewDate` is not today, "Now" is not rendered and the chip row is `grid-cols-2`.
+
+### Edit-time accessibility
+
+- Minus / plus `aria-label`: "One minute earlier" / "One minute later". Chips are labelled by their text.
+- The readout is `aria-live="polite"`, so each step is announced.
+- Minus, plus and the chips are plain buttons: Enter or Space steps once.
+- Disabled controls use the `disabled` attribute.
+- Focus order within the open row becomes: header, Edit, delete, minus, plus, the chips, size, texture.
+
+### Checks for the PR description
+
+No automated tests (decision 2026-10-10). Check by hand and list the results:
+
+1. Open a row, tap Edit, step back three minutes, tap Done. The time shows in the header, and the row is in the right place in the list after a reload.
+2. Tap minus five times, then Done. The network tab shows one update, after Done.
+3. Log a pee. The stepper is showing. Tap "−5 min", then tap another row. The pee keeps the new time after a reload.
+4. On today, plus and "+5 min" are disabled at the current minute.
+5. On an event shortly after midnight, minus and "−5 min" disable at 12:00 AM. The event's `local_date` is unchanged after any edit.
+6. On a past day, "Now" is absent.
+7. A failed row shows no Edit.
+8. Keyboard: Tab reaches every control in the order above; Enter steps.
+9. With reduced motion on, the press scale is off and everything still works.
 
 ## Row behavior
 
@@ -201,7 +296,7 @@ Two things in the design touch the data model. Neither is a schema change if you
 - **Long pet names.** The Settings description and size label wrap; nothing truncates.
 - **Many events in a day.** Collapsed rows are 44px plus 8px gaps. 10 events is about 520px. No cap, no pagination; the dashboard scrolls.
 - **Collapsed summary.** Truncates with an ellipsis. In practice the longest is "Medium · Just right", which fits at 375px.
-- **Cross-midnight edit.** Out of scope while the edit-time UI is deferred.
+- **Cross-midnight edit.** Not reachable from the edit-time control: proposal P1 keeps an edited time inside the event's own day. Moving an event to another day is still out of scope.
 - **Feature switched off by a household member.** The section disappears on the next fetch. Events are kept.
 
 ## Gestures
@@ -223,6 +318,7 @@ The board approximates springs with `cubic-bezier(.34, 1.8, .64, 1)` over 350ms.
 | Slider thumb position | Value change | Spring |
 | Scale mark | Press | `whileTap` scale 0.8, spring |
 | Add button | Press | `whileTap` scale 0.92, spring |
+| Time stepper minus / plus (added 2026-11-12) | Press | `whileTap` scale 0.88, spring |
 | Selected poop mark background | Value change | 200ms color transition |
 | Switch knob | Toggle | Spring; track color 200ms |
 | Size pill | Select | 150ms color transitions |
@@ -236,6 +332,8 @@ The board does not animate these, so v1 does not either. They change state insta
 - A row being deleted.
 - The empty state appearing or disappearing.
 - The Potty section appearing when the feature is switched on.
+- The time stepper appearing or hiding (added 2026-11-12).
+- A row moving to its new place in the list after its time is edited (added 2026-11-12).
 
 Do not add height transitions, `layout` animations or `AnimatePresence` for these. Keeping them as plain state changes also keeps the list simple while the failed-row behavior is built.
 
@@ -284,5 +382,7 @@ The board's controls are buttons whose labels say "(selected)". Build them with 
 | Size help | Poop sizes are relative to this, so "Big" means big for a {Size class} pup. |
 | Size not set (proposal) | Pick {pet name}'s size to start logging. |
 | Failed row (proposal) | Didn't save · Retry |
+| Edit time button (added 2026-11-12) | Edit · Done |
+| Time stepper chips (added 2026-11-12) | −5 min · Now · +5 min |
 
 The feature is named "Potty" in the UI. That closes the naming question.

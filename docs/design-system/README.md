@@ -243,6 +243,34 @@ Sizes used across the app: `52` (dashboard greeting), `80` (login/signup/join), 
 
 ---
 
+### `TimeStepper`
+
+**File:** `src/components/TimeStepper.tsx`
+
+Minute stepper for correcting a potty time. It knows nothing about events or the store. The open row passes the draft instant and the allowed range, and saves once when the stepper closes. One tap is one step; holding does not repeat. Frame 2h (digit wheels) is not this control.
+
+#### Props
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `value` | `Date` | Instant shown in the readout. Stepping adds or subtracts whole minutes and keeps the seconds |
+| `onChange` | `(next: Date) => void` | Called with the next instant |
+| `min` | `Date` | Earliest allowed instant, inclusive. A step that would pass it is disabled |
+| `max` | `Date` | Latest allowed instant, inclusive. On today this is the current instant; on a past day it is the end of that day |
+| `showNow` | `boolean` | Renders the "Now" chip. When false the chip row is `grid-cols-2` |
+
+#### Layout
+
+Wrapper: `flex flex-col gap-2.5 pb-1`.
+
+- **Minus / plus:** 52px circles, `bg-white border-2 border-goofy-teal text-teal-700`. Lucide `Minus` and `Plus`, 20px, stroke 3. Press scales to 0.88 on `POTTY_SPRING`. Disabled: `opacity-40 cursor-default`, no press scale, `disabled` set.
+- **Readout:** clock in `text-4xl font-extrabold tabular-nums`, period ("AM" / "PM") in `text-sm font-bold text-foreground/70`. Formatted with `formatPottyTime`. `aria-live="polite"`.
+- **Chips:** "−5 min" (U+2212), "Now", "+5 min". `min-h-11 rounded-full`. "Now" is `text-teal-700`; the others are `text-foreground`. "Now" is omitted when `showNow` is false.
+
+The stepper appears and disappears with no height animation. `MotionConfig reducedMotion="user"` on the Potty section turns the press scale off.
+
+---
+
 ## Pages
 
 ### Dashboard (`/`)
